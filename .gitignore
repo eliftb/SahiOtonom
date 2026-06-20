@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Ortam değişkenleri (.example takip edilir, gerçek .env takip edilmez)
+.env
+!.env.example
+
+# Node.js
+proje(1)/proje/frontend/node_modules
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+
+# Build çıktıları
+proje(1)/proje/frontend/dist/
+
+# ML modelleri (büyük dosyalar)
+*.pt
+*.pth
+*.onnx
+*.weights
+*.pb
+
+# Video dosyaları
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.wmv
+*.flv
+*.webm
+
+# Görüntü / veri setleri
+*.bag
+*.db
+*.sqlite
+
+# IDE / editör
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Log dosyaları
+*.log
+logs/

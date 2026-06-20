@@ -1,0 +1,19 @@
+# Makine Öğrenmesi / Görüntü İşleme
+torch>=2.0.0
+ultralytics>=8.0.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+
+# ZED2i Kamera
+pyzed>=4.0
+
+# Seri Haberleşme
+pyserial>=3.5
+
+# Ortam değişkenleri
+python-dotenv>=1.0.0
+
+# ROS2 (apt ile kurulur, pip ile değil)
+# sudo apt install ros-humble-desktop
+# sudo apt install ros-humble-cv-bridge
+# sudo apt install ros-humble-ackermann-msgs
