@@ -32,8 +32,8 @@ echo "▶ alzada_car spawn ediliyor..."
 ros2 run gazebo_ros spawn_entity.py \
     -file "$MODEL_SDF" \
     -entity alzada_car \
-    -x 0.0 -y 0.0 -z 0.5 \
-    -R 0.0 -P 0.0 -Y 0.0
+    -x 23.196297 -y -10.799116 -z 0.5 \
+    -R 0.0 -P 0.0 -Y 3.096073
 echo "  Spawn tamamlandı."
 sleep 3
 
