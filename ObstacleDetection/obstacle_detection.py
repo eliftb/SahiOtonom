@@ -29,19 +29,27 @@ class LidarObstacleDetector(Node):
         super().__init__('lidar_obstacle_detector')
         self.declare_parameter('scan_topic', '/scan')
         self.declare_parameter('obstacle_threshold', 5.0)
-        self.declare_parameter('front_angle_range_deg', 30.0)
+        self.declare_parameter('obstacle_min_distance', 1.20)
+        self.declare_parameter('front_angle_range_deg', 10.0)
+        self.declare_parameter('obstacle_min_points', 6)
+        self.declare_parameter('obstacle_confirm_frames', 3)
+        self.declare_parameter('obstacle_clear_frames', 4)
         self.declare_parameter('barrier_enabled', True)
         self.declare_parameter('barrier_safe_distance', 0.9)
         self.declare_parameter('barrier_influence_distance', 1.8)
         self.declare_parameter('barrier_correction_gain', 0.35)
         self.declare_parameter('barrier_max_correction', 0.35)
-        self.declare_parameter('barrier_hard_stop_distance', 0.45)
+        self.declare_parameter('barrier_hard_stop_distance', 0.12)
         self.declare_parameter('barrier_side_min_angle_deg', 35.0)
         self.declare_parameter('barrier_side_max_angle_deg', 115.0)
 
         scan_topic = self.get_parameter('scan_topic').value
         self.OBSTACLE_THRESHOLD = self.get_parameter('obstacle_threshold').value
+        self.OBSTACLE_MIN_DISTANCE = float(self.get_parameter('obstacle_min_distance').value)
         self.FRONT_ANGLE_RANGE_DEG = self.get_parameter('front_angle_range_deg').value
+        self.OBSTACLE_MIN_POINTS = int(self.get_parameter('obstacle_min_points').value)
+        self.OBSTACLE_CONFIRM_FRAMES = int(self.get_parameter('obstacle_confirm_frames').value)
+        self.OBSTACLE_CLEAR_FRAMES = int(self.get_parameter('obstacle_clear_frames').value)
         self.BARRIER_ENABLED = bool(self.get_parameter('barrier_enabled').value)
         self.BARRIER_SAFE_DISTANCE = float(self.get_parameter('barrier_safe_distance').value)
         self.BARRIER_INFLUENCE_DISTANCE = float(self.get_parameter('barrier_influence_distance').value)
@@ -65,11 +73,17 @@ class LidarObstacleDetector(Node):
 
         # Durum değişikliği loglaması için önceki durum takibi
         self._prev_obstacle_detected = False
+        self._obstacle_confirm_count = 0
+        self._obstacle_clear_count = 0
+        self._obstacle_active = False
+        self._last_obstacle_distance = float('inf')
+        self._last_obstacle_side = False
 
         self.get_logger().info(
             f'LiDAR Engel Dedektörü başlatıldı | '
             f'scan_topic={scan_topic} '
-            f'eşik={self.OBSTACLE_THRESHOLD}m ön açı=±{self.FRONT_ANGLE_RANGE_DEG/2:.0f}°'
+            f'eşik={self.OBSTACLE_THRESHOLD}m ön açı=±{self.FRONT_ANGLE_RANGE_DEG/2:.0f}° '
+            f'min_nokta={self.OBSTACLE_MIN_POINTS} confirm={self.OBSTACLE_CONFIRM_FRAMES}'
         )
         apply_log_level(self)
 
@@ -94,7 +108,8 @@ class LidarObstacleDetector(Node):
             & (ranges >= msg.range_min)
             & (ranges <= msg.range_max)
         )
-        valid_mask = front_mask & scan_valid_mask
+        obstacle_valid_mask = scan_valid_mask & (ranges >= self.OBSTACLE_MIN_DISTANCE)
+        valid_mask = front_mask & obstacle_valid_mask
         front_ranges = ranges[valid_mask]
 
         left_barrier, right_barrier = self._side_barrier_distances(ranges, angles, scan_valid_mask)
@@ -104,25 +119,67 @@ class LidarObstacleDetector(Node):
         self.publish_barrier_status(left_barrier, right_barrier, scan_min_distance, correction, safety_stop)
 
         if front_ranges.size == 0:
-            self._log_state_change(False, float('inf'), False)
-            self.publish_obstacle_status(False, float('inf'), False)
+            obstacle_detected = self._confirmed_obstacle(
+                False,
+                float('inf'),
+                False,
+            )
+            publish_distance = (
+                self._last_obstacle_distance
+                if obstacle_detected
+                else float('inf')
+            )
+            publish_side = self._last_obstacle_side if obstacle_detected else False
+            self._log_state_change(obstacle_detected, publish_distance, publish_side)
+            self.publish_obstacle_status(obstacle_detected, publish_distance, publish_side)
             return
 
-        min_dist = float(np.min(front_ranges))
-        obstacle_detected = min_dist <= self.OBSTACLE_THRESHOLD
-
         obstacle_mask = valid_mask & (ranges <= self.OBSTACLE_THRESHOLD)
+        obstacle_point_count = int(np.count_nonzero(obstacle_mask))
+        candidate_detected = obstacle_point_count >= self.OBSTACLE_MIN_POINTS
+
         if np.any(obstacle_mask):
             left_min = self._min_or_inf(ranges[obstacle_mask & (angles > 0.0)])
             right_min = self._min_or_inf(ranges[obstacle_mask & (angles <= 0.0)])
+            min_dist = float(np.min(ranges[obstacle_mask]))
         else:
             left_min = self._min_or_inf(ranges[valid_mask & (angles > 0.0)])
             right_min = self._min_or_inf(ranges[valid_mask & (angles <= 0.0)])
+            min_dist = float(np.min(front_ranges))
 
         obstacle_is_right = right_min <= left_min
 
-        self._log_state_change(obstacle_detected, min_dist, obstacle_is_right)
-        self.publish_obstacle_status(obstacle_detected, min_dist, obstacle_is_right)
+        obstacle_detected = self._confirmed_obstacle(
+            candidate_detected,
+            min_dist,
+            obstacle_is_right,
+        )
+        publish_distance = (
+            self._last_obstacle_distance
+            if obstacle_detected
+            else float('inf')
+        )
+        publish_side = self._last_obstacle_side if obstacle_detected else obstacle_is_right
+
+        self._log_state_change(obstacle_detected, publish_distance, publish_side)
+        self.publish_obstacle_status(obstacle_detected, publish_distance, publish_side)
+
+    def _confirmed_obstacle(self, candidate_detected: bool, distance: float, is_right: bool):
+        if candidate_detected:
+            self._obstacle_confirm_count += 1
+            self._obstacle_clear_count = 0
+            self._last_obstacle_distance = distance
+            self._last_obstacle_side = is_right
+            if self._obstacle_confirm_count >= self.OBSTACLE_CONFIRM_FRAMES:
+                self._obstacle_active = True
+        else:
+            self._obstacle_clear_count += 1
+            if self._obstacle_clear_count >= self.OBSTACLE_CLEAR_FRAMES:
+                self._obstacle_confirm_count = 0
+                self._obstacle_active = False
+                self._last_obstacle_distance = float('inf')
+
+        return self._obstacle_active
 
     @staticmethod
     def _min_or_inf(values):

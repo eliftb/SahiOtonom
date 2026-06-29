@@ -67,6 +67,8 @@ class GazeboTrackDriver(Node):
         self.declare_parameter('avoidance_center_speed', 0.22)
         self.declare_parameter('avoidance_turn_angular', 0.85)
         self.declare_parameter('avoidance_return_angular', 0.85)
+        self.declare_parameter('obstacle_escape_angular', 0.85)
+        self.declare_parameter('obstacle_return_angular', 0.55)
         self.declare_parameter('avoidance_return_duration', 20.0)
         self.declare_parameter('return_hold_duration', 2.0)
         self.declare_parameter('return_speed', 0.18)
@@ -116,6 +118,8 @@ class GazeboTrackDriver(Node):
         self.avoidance_center_speed = float(self.get_parameter('avoidance_center_speed').value)
         self.avoidance_turn_angular = float(self.get_parameter('avoidance_turn_angular').value)
         self.avoidance_return_angular = float(self.get_parameter('avoidance_return_angular').value)
+        self.obstacle_escape_angular = float(self.get_parameter('obstacle_escape_angular').value)
+        self.obstacle_return_angular = float(self.get_parameter('obstacle_return_angular').value)
         self.avoidance_return_duration = float(self.get_parameter('avoidance_return_duration').value)
         self.return_hold_duration = float(self.get_parameter('return_hold_duration').value)
         self.return_speed = float(self.get_parameter('return_speed').value)
@@ -405,6 +409,20 @@ class GazeboTrackDriver(Node):
         angular = lane_angular + self.barrier_angular_correction()
         return self.scale_angular(angular)
 
+    def _obstacle_escape_cmd(self, twist):
+        twist.linear.x = max(self.avoidance_speed, self.min_speed)
+        twist.angular.z = self.scale_angular(abs(self.obstacle_escape_angular))
+
+    def _obstacle_center_cmd(self, twist):
+        twist.linear.x = max(self.avoidance_center_speed, self.min_speed)
+        twist.angular.z = self._lane_follow_angular()
+
+    def _obstacle_return_cmd(self, twist):
+        lane_angular = -self.last_deviation * self.lane_gain
+        return_angular = -abs(self.obstacle_return_angular) + 0.35 * lane_angular
+        twist.linear.x = max(self.return_speed, self.min_speed)
+        twist.angular.z = self.scale_angular(return_angular)
+
     def drive_loop(self):
         twist = Twist()
 
@@ -425,8 +443,7 @@ class GazeboTrackDriver(Node):
             phase_elapsed = self._advance_timed_avoidance(now)
 
         if self._avoidance_phase in ('escape_left', 'pose_turn_left'):
-            twist.linear.x = max(self.avoidance_speed, self.min_speed)
-            twist.angular.z = self.scale_angular(abs(self.avoidance_turn_angular))
+            self._obstacle_escape_cmd(twist)
             label = 'KONUM DONUSU' if self._avoidance_phase == 'pose_turn_left' else 'SOLLAMA 1/3'
             self.get_logger().warn(
                 f'{label}: SOLA cikiliyor sure={phase_elapsed:.1f}s '
@@ -434,8 +451,7 @@ class GazeboTrackDriver(Node):
                 throttle_duration_sec=0.5)
 
         elif self._avoidance_phase in ('center_left', 'pose_center'):
-            twist.linear.x = max(self.avoidance_center_speed, self.min_speed)
-            twist.angular.z = self._lane_follow_angular()
+            self._obstacle_center_cmd(twist)
             label = 'KONUM ORTALAMA' if self._avoidance_phase == 'pose_center' else 'SOLLAMA 2/3'
             self.get_logger().warn(
                 f'{label}: Seritte ortalaniyor sure={phase_elapsed:.1f}s '
@@ -443,10 +459,7 @@ class GazeboTrackDriver(Node):
                 throttle_duration_sec=0.5)
 
         elif self._avoidance_phase == 'return_right':
-            lane_angular = -self.last_deviation * self.lane_gain
-            return_angular = -abs(self.avoidance_return_angular) + 0.35 * lane_angular
-            twist.linear.x = max(self.return_speed, self.min_speed)
-            twist.angular.z = self.scale_angular(return_angular)
+            self._obstacle_return_cmd(twist)
             self.get_logger().warn(
                 f'SOLLAMA 3/3: SAG seride donuluyor sure={phase_elapsed:.1f}s '
                 f'dev={self.last_deviation:.2f}',

@@ -29,6 +29,7 @@ yarn-error.log*
 
 # Build çıktıları
 proje(1)/proje/frontend/dist/
+*.so
 
 # ML modelleri (büyük dosyalar)
 *.pt
