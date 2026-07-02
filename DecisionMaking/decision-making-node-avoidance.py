@@ -94,6 +94,7 @@ class DecisionMakingNode(Node):
         self.declare_parameter("sign_intent_area_ratio", 0.003)
         self.declare_parameter("sign_action_area_ratio", 0.010)
         self.declare_parameter("traffic_light_area_ratio", 0.002)
+        self.declare_parameter("traffic_red_lost_release_delay", 5.0)
         self.declare_parameter("traffic_stop_pose_enabled", False)
         self.declare_parameter("traffic_stop_x", 0.0)
         self.declare_parameter("traffic_stop_y", 0.0)
@@ -130,11 +131,25 @@ class DecisionMakingNode(Node):
         self.declare_parameter("bus_stop_clear_frames", 5)
         self.declare_parameter("bus_stop_entry_duration", 2.6)
         self.declare_parameter("bus_stop_align_duration", 1.8)
-        self.declare_parameter("bus_stop_wait_duration", 5.0)
+        self.declare_parameter("bus_stop_wait_duration", 10.0)
         self.declare_parameter("bus_stop_exit_duration", 2.6)
         self.declare_parameter("bus_stop_exit_align_duration", 1.8)
         self.declare_parameter("bus_stop_speed", 0.22)
         self.declare_parameter("bus_stop_steering_angle", 0.38)
+        self.declare_parameter("bus_stop_align_gain_multiplier", 1.35)
+        self.declare_parameter("bus_stop_align_steering_limit", 0.22)
+        self.declare_parameter("bus_stop_target_steering_gain", 0.55)
+        self.declare_parameter("bus_stop_target_steering_limit", 0.70)
+        self.declare_parameter("bus_stop_target_steer_sign", 1.0)
+        self.declare_parameter("bus_stop_target_slow_distance", 2.0)
+        self.declare_parameter("bus_stop_pose_enabled", False)
+        self.declare_parameter("bus_stop_pose_x", 0.0)
+        self.declare_parameter("bus_stop_pose_y", 0.0)
+        self.declare_parameter("bus_stop_pose_radius", 1.2)
+        self.declare_parameter("bus_stop_wait_pose_enabled", False)
+        self.declare_parameter("bus_stop_wait_pose_x", 0.0)
+        self.declare_parameter("bus_stop_wait_pose_y", 0.0)
+        self.declare_parameter("bus_stop_wait_pose_radius", 1.2)
         self.declare_parameter("range_fresh_timeout", 1.0)
 
         self.base_speed = self._float_param("base_speed")
@@ -190,6 +205,8 @@ class DecisionMakingNode(Node):
         self.sign_intent_area_ratio = self._float_param("sign_intent_area_ratio")
         self.sign_action_area_ratio = self._float_param("sign_action_area_ratio")
         self.traffic_light_area_ratio = self._float_param("traffic_light_area_ratio")
+        self.traffic_red_lost_release_delay = self._float_param(
+            "traffic_red_lost_release_delay")
         self.traffic_stop_pose_enabled = self._bool_param(
             "traffic_stop_pose_enabled")
         self.traffic_stop_x = self._float_param("traffic_stop_x")
@@ -249,6 +266,28 @@ class DecisionMakingNode(Node):
         self.bus_stop_speed = self._float_param("bus_stop_speed")
         self.bus_stop_steering_angle = self._float_param(
             "bus_stop_steering_angle")
+        self.bus_stop_align_gain_multiplier = self._float_param(
+            "bus_stop_align_gain_multiplier")
+        self.bus_stop_align_steering_limit = self._float_param(
+            "bus_stop_align_steering_limit")
+        self.bus_stop_target_steering_gain = self._float_param(
+            "bus_stop_target_steering_gain")
+        self.bus_stop_target_steering_limit = self._float_param(
+            "bus_stop_target_steering_limit")
+        self.bus_stop_target_steer_sign = self._float_param(
+            "bus_stop_target_steer_sign")
+        self.bus_stop_target_slow_distance = self._float_param(
+            "bus_stop_target_slow_distance")
+        self.bus_stop_pose_enabled = self._bool_param("bus_stop_pose_enabled")
+        self.bus_stop_pose_x = self._float_param("bus_stop_pose_x")
+        self.bus_stop_pose_y = self._float_param("bus_stop_pose_y")
+        self.bus_stop_pose_radius = self._float_param("bus_stop_pose_radius")
+        self.bus_stop_wait_pose_enabled = self._bool_param(
+            "bus_stop_wait_pose_enabled")
+        self.bus_stop_wait_pose_x = self._float_param("bus_stop_wait_pose_x")
+        self.bus_stop_wait_pose_y = self._float_param("bus_stop_wait_pose_y")
+        self.bus_stop_wait_pose_radius = self._float_param(
+            "bus_stop_wait_pose_radius")
         self.range_fresh_timeout = self._float_param("range_fresh_timeout")
 
         self.state = VehicleState.NORMAL
@@ -266,6 +305,7 @@ class DecisionMakingNode(Node):
         self.have_odom = False
         self.car_x = 0.0
         self.car_y = 0.0
+        self.car_yaw = 0.0
 
         self.obstacle_detected = False
         self.obstacle_distance = float("inf")
@@ -282,12 +322,15 @@ class DecisionMakingNode(Node):
         self.right_rear_range_time = 0.0
         self.bus_stop_clear_count = 0
         self.bus_stop_requested = False
+        self.bus_stop_pose_consumed = False
         self.stop_requested = False
         self.last_action_times = {}
 
         self.red_light_active = False
         self.traffic_light_detection_active = False
         self.traffic_stop_consumed = False
+        self.last_red_light_seen_at = 0.0
+        self.last_green_light_seen_at = 0.0
         self.last_sign_summary = "none"
 
         self.create_subscription(
@@ -374,9 +417,21 @@ class DecisionMakingNode(Node):
 
     def odom_callback(self, msg):
         p = msg.pose.pose.position
+        q = msg.pose.pose.orientation
         self.car_x = float(p.x)
         self.car_y = float(p.y)
+        self.car_yaw = self._yaw_from_quaternion(q)
         self.have_odom = True
+
+    @staticmethod
+    def _yaw_from_quaternion(q):
+        siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+        return math.atan2(siny_cosp, cosy_cosp)
+
+    @staticmethod
+    def _normalize_angle(angle):
+        return math.atan2(math.sin(angle), math.cos(angle))
 
     def obstacle_detected_callback(self, msg):
         self.obstacle_detected = bool(msg.data)
@@ -483,8 +538,10 @@ class DecisionMakingNode(Node):
                 "Sign Detection trafik isigini gordu: isik karari aktif.")
 
         if self.traffic_light_detection_active and green_seen:
+            self.last_green_light_seen_at = now
             self.red_light_active = False
         elif self.traffic_light_detection_active and red_seen:
+            self.last_red_light_seen_at = now
             self.red_light_active = True
 
         self.last_sign_summary = ",".join(sorted(set(visible_names))) or "none"
@@ -646,6 +703,43 @@ class DecisionMakingNode(Node):
             )
         return self.right_barrier_distance >= self.bus_stop_clear_distance
 
+    def _check_bus_stop_pose(self):
+        if (
+            not self.bus_stop_pose_enabled
+            or self.bus_stop_pose_consumed
+            or not self.have_odom
+            or self.state != VehicleState.NORMAL
+        ):
+            return False
+
+        distance = math.hypot(
+            self.car_x - self.bus_stop_pose_x,
+            self.car_y - self.bus_stop_pose_y,
+        )
+        if distance > self.bus_stop_pose_radius:
+            return False
+
+        self.bus_stop_pose_consumed = True
+        self.bus_stop_requested = False
+        self.bus_stop_clear_count = 0
+        self._transition(
+            VehicleState.BUS_STOP_ENTER,
+            f"durak konumu tetiklendi: "
+            f"x={self.car_x:.2f}, y={self.car_y:.2f}, "
+            f"hedefe={distance:.2f}m, saga kayis",
+        )
+        return True
+
+    def _bus_stop_wait_pose_reached(self):
+        if not self.bus_stop_wait_pose_enabled or not self.have_odom:
+            return False
+
+        distance = math.hypot(
+            self.car_x - self.bus_stop_wait_pose_x,
+            self.car_y - self.bus_stop_wait_pose_y,
+        )
+        return distance <= self.bus_stop_wait_pose_radius
+
     def _lane_is_centered_for_overtake(self):
         return (
             abs(self.lateral_deviation) <= self.avoidance_center_tolerance
@@ -766,6 +860,18 @@ class DecisionMakingNode(Node):
             if not self.red_light_active:
                 self.traffic_stop_consumed = True
                 self._transition(VehicleState.NORMAL, "yesil isik")
+            elif (
+                self.traffic_red_lost_release_delay > 0.0
+                and self.last_red_light_seen_at > 0.0
+                and now - self.last_red_light_seen_at
+                >= self.traffic_red_lost_release_delay
+            ):
+                self.red_light_active = False
+                self.traffic_stop_consumed = True
+                self._transition(
+                    VehicleState.NORMAL,
+                    "kirmizi kayboldu, 5s sonra gecis",
+                )
             return
 
         if self.state == VehicleState.OBSTACLE_ESCAPE:
@@ -831,6 +937,13 @@ class DecisionMakingNode(Node):
             return
 
         if self.state == VehicleState.BUS_STOP_ENTER:
+            if self._bus_stop_wait_pose_reached():
+                self._transition(
+                    VehicleState.BUS_STOP_WAIT,
+                    f"durak bekleme konumuna gelindi, "
+                    f"{self.bus_stop_wait_duration:.0f}s bekle",
+                )
+                return
             if elapsed >= self.bus_stop_entry_duration:
                 self._transition(
                     VehicleState.BUS_STOP_ALIGN,
@@ -839,10 +952,16 @@ class DecisionMakingNode(Node):
             return
 
         if self.state == VehicleState.BUS_STOP_ALIGN:
-            if elapsed >= self.bus_stop_align_duration:
+            if self._bus_stop_wait_pose_reached():
                 self._transition(
                     VehicleState.BUS_STOP_WAIT,
-                    f"{self.bus_stop_wait_duration:.0f}s durak beklemesi",
+                    f"durak bekleme konumuna gelindi, "
+                    f"{self.bus_stop_wait_duration:.0f}s bekle",
+                )
+            elif elapsed >= self.bus_stop_align_duration:
+                self.get_logger().warn(
+                    "Durak ic hedefe gidiliyor; hedefe ulasmadan bekleme yok.",
+                    throttle_duration_sec=1.0,
                 )
             return
 
@@ -880,6 +999,8 @@ class DecisionMakingNode(Node):
                 VehicleState.BUS_STOP_CHECK,
                 "durak alani doluluk kontrolu",
             )
+        elif self._check_bus_stop_pose():
+            return
         elif self._check_pose_turn(now):
             return
         elif (
@@ -981,6 +1102,42 @@ class DecisionMakingNode(Node):
             self.obstacle_right_align_steering(),
         )
 
+    def bus_stop_align_command(self):
+        steering = self.lane_steering(
+            correct_heading=True,
+            gain_multiplier=self.bus_stop_align_gain_multiplier,
+        )
+        steering = float(np.clip(
+            steering,
+            -self.bus_stop_align_steering_limit,
+            self.bus_stop_align_steering_limit,
+        ))
+        return self.bus_stop_speed, steering
+
+    def bus_stop_target_command(self):
+        if not self.bus_stop_wait_pose_enabled or not self.have_odom:
+            return self.bus_stop_align_command()
+
+        dx = self.bus_stop_wait_pose_x - self.car_x
+        dy = self.bus_stop_wait_pose_y - self.car_y
+        distance = math.hypot(dx, dy)
+        target_yaw = math.atan2(dy, dx)
+        yaw_error = self._normalize_angle(target_yaw - self.car_yaw)
+        steering = yaw_error * self.bus_stop_target_steering_gain
+        steering *= self.bus_stop_target_steer_sign
+        steering = float(np.clip(
+            steering,
+            -self.bus_stop_target_steering_limit,
+            self.bus_stop_target_steering_limit,
+        ))
+
+        speed = self.bus_stop_speed
+        if distance <= self.bus_stop_target_slow_distance:
+            speed = min(speed, self.bus_stop_speed * 0.70)
+        if abs(yaw_error) > 1.35:
+            speed = min(speed, self.bus_stop_speed * 0.75)
+        return speed, steering
+
     def command_for_state(self):
         lane_steering = self.lane_steering(
             correct_heading=self.normal_lane_correct_heading,
@@ -1016,13 +1173,13 @@ class DecisionMakingNode(Node):
         if self.state == VehicleState.BUS_STOP_CHECK:
             return self.min_speed, lane_steering
         if self.state == VehicleState.BUS_STOP_ENTER:
-            return self.bus_stop_speed, -abs(self.bus_stop_steering_angle)
+            return self.bus_stop_target_command()
         if self.state == VehicleState.BUS_STOP_ALIGN:
-            return self.bus_stop_speed, abs(self.bus_stop_steering_angle) * 0.75
+            return self.bus_stop_target_command()
         if self.state == VehicleState.BUS_STOP_EXIT:
             return self.bus_stop_speed, abs(self.bus_stop_steering_angle)
         if self.state == VehicleState.BUS_STOP_EXIT_ALIGN:
-            return self.bus_stop_speed, -abs(self.bus_stop_steering_angle) * 0.75
+            return self.bus_stop_align_command()
         return self.base_speed, lane_steering
 
     def decision_loop(self):
