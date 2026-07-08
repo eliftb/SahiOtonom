@@ -120,6 +120,8 @@ class DecisionMakingNode(Node):
 
         self.declare_parameter("obstacle_trigger_distance", 3.0)
         self.declare_parameter("emergency_stop_distance", 0.40)
+        self.declare_parameter("obstacle_ignore_traffic_stop_radius", 8.0)
+        self.declare_parameter("max_overtake_count", 0)
         self.declare_parameter("obstacle_start_lateral_tolerance", 0.35)
         self.declare_parameter("obstacle_start_heading_tolerance", 0.18)
         self.declare_parameter("obstacle_start_allow_intersection", False)
@@ -312,6 +314,9 @@ class DecisionMakingNode(Node):
 
         self.obstacle_trigger_distance = self._float_param("obstacle_trigger_distance")
         self.emergency_stop_distance = self._float_param("emergency_stop_distance")
+        self.obstacle_ignore_traffic_stop_radius = self._float_param(
+            "obstacle_ignore_traffic_stop_radius")
+        self.max_overtake_count = self._int_param("max_overtake_count")
         self.obstacle_start_lateral_tolerance = self._float_param(
             "obstacle_start_lateral_tolerance")
         self.obstacle_start_heading_tolerance = self._float_param(
@@ -518,6 +523,7 @@ class DecisionMakingNode(Node):
         self.obstacle_detected = False
         self.obstacle_distance = float("inf")
         self.obstacle_is_right = True
+        self.overtake_count = 0
         self.obstacle_centered_count = 0
         self.obstacle_right_centered_count = 0
         self.barrier_safety_stop = False
@@ -1391,9 +1397,12 @@ class DecisionMakingNode(Node):
             self.obstacle_centered_count = 0
 
     def _start_obstacle_avoidance(self):
+        self.overtake_count += 1
         self._transition(
             VehicleState.OBSTACLE_ESCAPE,
-            f"engel {self.obstacle_distance:.2f}m, sag seritten SOL seride kacis",
+            f"engel {self.obstacle_distance:.2f}m, sag seritten SOL seride kacis "
+            f"(sollama {self.overtake_count}/"
+            f"{self.max_overtake_count if self.max_overtake_count > 0 else '∞'})",
         )
 
     def _start_post_turn_obstacle_ignore(self, now):
@@ -1442,8 +1451,42 @@ class DecisionMakingNode(Node):
             VehicleState.PARKED,
         }
 
+    def _near_traffic_stop_zone(self):
+        """Isik direkleri lidar tarafindan hayalet engel olarak gorulebilir;
+        isik dur noktalarinin cevresinde sollama baslatilmaz."""
+        if (
+            not self.have_odom
+            or self.obstacle_ignore_traffic_stop_radius <= 0.0
+        ):
+            return False
+        for point in self.traffic_stop_points:
+            distance = math.hypot(
+                self.car_x - point["x"],
+                self.car_y - point["y"],
+            )
+            if distance <= self.obstacle_ignore_traffic_stop_radius:
+                return True
+        return False
+
     def _obstacle_start_allowed(self, now):
         if not self._obstacle_response_allowed(now):
+            return False
+        if (
+            self.max_overtake_count > 0
+            and self.overtake_count >= self.max_overtake_count
+        ):
+            self.get_logger().warn(
+                "Engel tetigi yoksayildi: sollama hakki doldu "
+                f"({self.overtake_count}/{self.max_overtake_count}).",
+                throttle_duration_sec=2.0,
+            )
+            return False
+        if self._near_traffic_stop_zone():
+            self.get_logger().warn(
+                "Engel tetigi yoksayildi: trafik isigi bolgesi "
+                f"(x={self.car_x:.2f}, y={self.car_y:.2f}).",
+                throttle_duration_sec=1.0,
+            )
             return False
         if (
             not self.obstacle_start_allow_intersection
