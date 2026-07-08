@@ -36,6 +36,14 @@ class VehicleState(Enum):
     BUS_STOP_WAIT = "bus_stop_wait"
     BUS_STOP_EXIT = "bus_stop_exit"
     BUS_STOP_EXIT_ALIGN = "bus_stop_exit_align"
+    BUS_STOP_FINAL_ALIGN = "bus_stop_final_align"
+    BUS_STOP_LANE_ALIGN = "bus_stop_lane_align"
+    PARK_SEARCH = "park_search"
+    PARK_ROUTE = "park_route"
+    PARK_SETTLE = "park_settle"
+    PARK_ENTER = "park_enter"
+    PARK_ALIGN = "park_align"
+    PARKED = "parked"
 
 
 class DecisionMakingNode(Node):
@@ -78,6 +86,9 @@ class DecisionMakingNode(Node):
         self.declare_parameter("right_turn_steering_angle", 0.55)
         self.declare_parameter("right_turn_duration", 5.0)
         self.declare_parameter("right_turn_start_delay", 0.0)
+        self.declare_parameter("pose_turn_right_speed", 0.18)
+        self.declare_parameter("pose_turn_right_steering_angle", 0.64)
+        self.declare_parameter("pose_turn_right_duration", 32.0)
         self.declare_parameter("intersection_clear_frames", 5)
         self.declare_parameter("odom_topic", "/odom")
         self.declare_parameter("pose_turn_enabled", False)
@@ -85,7 +96,10 @@ class DecisionMakingNode(Node):
         self.declare_parameter("pose_turn_x", 0.0)
         self.declare_parameter("pose_turn_y", 0.0)
         self.declare_parameter("pose_turn_radius", 1.2)
+        self.declare_parameter("pose_turn_points", "")
         self.declare_parameter("pose_turn_align_duration", 0.0)
+        self.declare_parameter("pose_turn_left_align_duration", 0.0)
+        self.declare_parameter("pose_turn_right_align_duration", 0.0)
         self.declare_parameter("pose_turn_align_speed", 0.32)
         self.declare_parameter("pose_turn_align_gain_multiplier", 1.25)
         self.declare_parameter("post_turn_obstacle_ignore_duration", 10.0)
@@ -94,16 +108,21 @@ class DecisionMakingNode(Node):
         self.declare_parameter("sign_intent_area_ratio", 0.003)
         self.declare_parameter("sign_action_area_ratio", 0.010)
         self.declare_parameter("traffic_light_area_ratio", 0.002)
-        self.declare_parameter("traffic_red_lost_release_delay", 5.0)
+        self.declare_parameter("traffic_red_lost_release_delay", 0.0)
+        self.declare_parameter("traffic_green_fresh_duration", 1.5)
         self.declare_parameter("traffic_stop_pose_enabled", False)
         self.declare_parameter("traffic_stop_x", 0.0)
         self.declare_parameter("traffic_stop_y", 0.0)
         self.declare_parameter("traffic_stop_radius", 1.2)
+        self.declare_parameter("traffic_stop_points", "")
         self.declare_parameter("sign_action_cooldown", 12.0)
         self.declare_parameter("sign_turn_enabled", True)
 
         self.declare_parameter("obstacle_trigger_distance", 3.0)
         self.declare_parameter("emergency_stop_distance", 0.40)
+        self.declare_parameter("obstacle_start_lateral_tolerance", 0.35)
+        self.declare_parameter("obstacle_start_heading_tolerance", 0.18)
+        self.declare_parameter("obstacle_start_allow_intersection", False)
         self.declare_parameter("avoidance_escape_duration", 5.0)
         self.declare_parameter("avoidance_center_duration", 10.0)
         self.declare_parameter("avoidance_return_duration", 6.0)
@@ -117,25 +136,30 @@ class DecisionMakingNode(Node):
         self.declare_parameter("avoidance_center_stable_frames", 6)
         self.declare_parameter("avoidance_center_max_extra_duration", 10.0)
         self.declare_parameter("avoidance_center_gain_multiplier", 1.25)
-        self.declare_parameter("avoidance_right_align_duration", 0.0)
+        self.declare_parameter("avoidance_right_align_duration", 0.8)
         self.declare_parameter("avoidance_right_align_timeout", 12.0)
         self.declare_parameter("avoidance_return_turn_duration", 8.0)
         self.declare_parameter("avoidance_return_counter_duration", 0.0)
         self.declare_parameter("avoidance_return_counter_ratio", 0.0)
         self.declare_parameter("avoidance_return_align_gain_multiplier", 1.40)
-        self.declare_parameter("avoidance_right_align_turn_duration", 0.0)
-        self.declare_parameter("avoidance_right_align_turn_angle", 0.60)
+        self.declare_parameter("avoidance_right_align_turn_duration", 0.5)
+        self.declare_parameter("avoidance_right_align_turn_angle", 0.20)
 
         self.declare_parameter("bus_stop_check_duration", 1.2)
         self.declare_parameter("bus_stop_clear_distance", 1.25)
         self.declare_parameter("bus_stop_clear_frames", 5)
-        self.declare_parameter("bus_stop_entry_duration", 2.6)
-        self.declare_parameter("bus_stop_align_duration", 1.8)
-        self.declare_parameter("bus_stop_wait_duration", 10.0)
-        self.declare_parameter("bus_stop_exit_duration", 2.6)
-        self.declare_parameter("bus_stop_exit_align_duration", 1.8)
+        self.declare_parameter("bus_stop_entry_duration", 25.0)
+        self.declare_parameter("bus_stop_align_duration", 5.0)
+        self.declare_parameter("bus_stop_wait_duration", 18.0)
+        self.declare_parameter("bus_stop_exit_duration", 3.0)
+        self.declare_parameter("bus_stop_exit_align_duration", 25.0)
+        self.declare_parameter("bus_stop_final_align_duration", 15.0)
+        self.declare_parameter("bus_stop_lane_align_duration", 8.0)
+        self.declare_parameter("bus_stop_lane_align_timeout", 18.0)
+        self.declare_parameter("bus_stop_lane_align_speed", 0.22)
         self.declare_parameter("bus_stop_speed", 0.22)
-        self.declare_parameter("bus_stop_steering_angle", 0.38)
+        self.declare_parameter("bus_stop_steering_angle", 0.35)
+        self.declare_parameter("bus_stop_entry_steering_angle", 0.33)
         self.declare_parameter("bus_stop_align_gain_multiplier", 1.35)
         self.declare_parameter("bus_stop_align_steering_limit", 0.22)
         self.declare_parameter("bus_stop_target_steering_gain", 0.55)
@@ -150,6 +174,62 @@ class DecisionMakingNode(Node):
         self.declare_parameter("bus_stop_wait_pose_x", 0.0)
         self.declare_parameter("bus_stop_wait_pose_y", 0.0)
         self.declare_parameter("bus_stop_wait_pose_radius", 1.2)
+        self.declare_parameter("parking_enabled", False)
+        self.declare_parameter("parking_pose_enabled", False)
+        self.declare_parameter("parking_pose_x", 0.0)
+        self.declare_parameter("parking_pose_y", 0.0)
+        self.declare_parameter("parking_pose_radius", 1.2)
+        self.declare_parameter("parking_search_timeout", 30.0)
+        self.declare_parameter("parking_clear_distance", 0.85)
+        self.declare_parameter("parking_clear_frames", 3)
+        self.declare_parameter("parking_search_speed", 0.18)
+        self.declare_parameter("parking_speed", 0.22)
+        self.declare_parameter("parking_entry_duration", 70.0)
+        self.declare_parameter("parking_align_duration", 4.0)
+        self.declare_parameter("parking_entry_steering_angle", 0.55)
+        self.declare_parameter("parking_align_steering_angle", 0.35)
+        self.declare_parameter("parking_target_enabled", False)
+        self.declare_parameter("parking_target_x", 0.0)
+        self.declare_parameter("parking_target_y", 0.0)
+        self.declare_parameter("parking_target_radius", 0.75)
+        self.declare_parameter("parking_route_points", "")
+        self.declare_parameter("parking_route_default_radius", 0.85)
+        self.declare_parameter("parking_route_steering_gain", 0.95)
+        self.declare_parameter("parking_route_steering_limit", 0.85)
+        self.declare_parameter("parking_route_slow_distance", 2.2)
+        self.declare_parameter("parking_min_speed", 0.10)
+        self.declare_parameter("parking_settle_duration", 1.5)
+        self.declare_parameter("parking_disable_obstacles", True)
+        self.declare_parameter("parking_script_enabled", False)
+        self.declare_parameter("parking_pre_align_duration", 0.0)
+        self.declare_parameter("parking_pre_align_speed", 0.20)
+        self.declare_parameter("parking_pre_align_gain_multiplier", 1.05)
+        self.declare_parameter("parking_pre_align_steering_limit", 0.18)
+        self.declare_parameter("parking_script_straight_duration", 9.0)
+        self.declare_parameter("parking_script_shift_duration", 3.5)
+        self.declare_parameter("parking_script_final_duration", 55.0)
+        self.declare_parameter("parking_script_shift_steering", 0.10)
+        self.declare_parameter("parking_script_right_duration", 0.0)
+        self.declare_parameter("parking_script_right_steering", 0.05)
+        self.declare_parameter("parking_script_shift_speed", 0.20)
+        self.declare_parameter("parking_target_start_distance", 15.0)
+        self.declare_parameter("parking_target_timeout", 120.0)
+        self.declare_parameter("parking_target_steering_gain", 0.95)
+        self.declare_parameter("parking_target_steering_limit", 0.80)
+        self.declare_parameter("parking_target_steer_sign", -1.0)
+        self.declare_parameter("parking_target_slow_distance", 3.0)
+        self.declare_parameter("parking_target_passed_forward_margin", 0.40)
+        self.declare_parameter("parking_target_passed_lateral_tolerance", 1.60)
+        self.declare_parameter("parking_final_yaw_enabled", False)
+        self.declare_parameter("parking_final_yaw", 0.0)
+        self.declare_parameter("parking_final_yaw_tolerance", 0.10)
+        self.declare_parameter("parking_final_yaw_gain", 0.80)
+        self.declare_parameter("parking_align_speed", 0.22)
+        self.declare_parameter("parking_line_align_gain_multiplier", 1.20)
+        self.declare_parameter("parking_line_align_weight", 0.80)
+        self.declare_parameter("parking_heading_align_tolerance", 0.08)
+        self.declare_parameter("parking_heading_align_weight", 0.92)
+        self.declare_parameter("parking_heading_align_speed_ratio", 0.75)
         self.declare_parameter("range_fresh_timeout", 1.0)
 
         self.base_speed = self._float_param("base_speed")
@@ -180,6 +260,11 @@ class DecisionMakingNode(Node):
         self.right_turn_duration = self._float_param("right_turn_duration")
         self.right_turn_start_delay = self._float_param(
             "right_turn_start_delay")
+        self.pose_turn_right_speed = self._float_param("pose_turn_right_speed")
+        self.pose_turn_right_steering_angle = self._float_param(
+            "pose_turn_right_steering_angle")
+        self.pose_turn_right_duration = self._float_param(
+            "pose_turn_right_duration")
         self.intersection_clear_frames = self._int_param("intersection_clear_frames")
         self.odom_topic = str(self.get_parameter("odom_topic").value)
         self.pose_turn_enabled = self._bool_param("pose_turn_enabled")
@@ -193,8 +278,14 @@ class DecisionMakingNode(Node):
         self.pose_turn_x = self._float_param("pose_turn_x")
         self.pose_turn_y = self._float_param("pose_turn_y")
         self.pose_turn_radius = self._float_param("pose_turn_radius")
+        self.pose_turn_points = self._parse_pose_turn_points(
+            str(self.get_parameter("pose_turn_points").value or ""))
         self.pose_turn_align_duration = self._float_param(
             "pose_turn_align_duration")
+        self.pose_turn_left_align_duration = self._float_param(
+            "pose_turn_left_align_duration")
+        self.pose_turn_right_align_duration = self._float_param(
+            "pose_turn_right_align_duration")
         self.pose_turn_align_speed = self._float_param("pose_turn_align_speed")
         self.pose_turn_align_gain_multiplier = self._float_param(
             "pose_turn_align_gain_multiplier")
@@ -207,16 +298,26 @@ class DecisionMakingNode(Node):
         self.traffic_light_area_ratio = self._float_param("traffic_light_area_ratio")
         self.traffic_red_lost_release_delay = self._float_param(
             "traffic_red_lost_release_delay")
+        self.traffic_green_fresh_duration = self._float_param(
+            "traffic_green_fresh_duration")
         self.traffic_stop_pose_enabled = self._bool_param(
             "traffic_stop_pose_enabled")
         self.traffic_stop_x = self._float_param("traffic_stop_x")
         self.traffic_stop_y = self._float_param("traffic_stop_y")
         self.traffic_stop_radius = self._float_param("traffic_stop_radius")
+        self.traffic_stop_points = self._parse_traffic_stop_points(
+            str(self.get_parameter("traffic_stop_points").value or ""))
         self.sign_action_cooldown = self._float_param("sign_action_cooldown")
         self.sign_turn_enabled = self._bool_param("sign_turn_enabled")
 
         self.obstacle_trigger_distance = self._float_param("obstacle_trigger_distance")
         self.emergency_stop_distance = self._float_param("emergency_stop_distance")
+        self.obstacle_start_lateral_tolerance = self._float_param(
+            "obstacle_start_lateral_tolerance")
+        self.obstacle_start_heading_tolerance = self._float_param(
+            "obstacle_start_heading_tolerance")
+        self.obstacle_start_allow_intersection = self._bool_param(
+            "obstacle_start_allow_intersection")
         self.avoidance_escape_duration = self._float_param("avoidance_escape_duration")
         self.avoidance_center_duration = self._float_param("avoidance_center_duration")
         self.avoidance_return_duration = self._float_param("avoidance_return_duration")
@@ -263,9 +364,19 @@ class DecisionMakingNode(Node):
         self.bus_stop_exit_duration = self._float_param("bus_stop_exit_duration")
         self.bus_stop_exit_align_duration = self._float_param(
             "bus_stop_exit_align_duration")
+        self.bus_stop_final_align_duration = self._float_param(
+            "bus_stop_final_align_duration")
+        self.bus_stop_lane_align_duration = self._float_param(
+            "bus_stop_lane_align_duration")
+        self.bus_stop_lane_align_timeout = self._float_param(
+            "bus_stop_lane_align_timeout")
+        self.bus_stop_lane_align_speed = self._float_param(
+            "bus_stop_lane_align_speed")
         self.bus_stop_speed = self._float_param("bus_stop_speed")
         self.bus_stop_steering_angle = self._float_param(
             "bus_stop_steering_angle")
+        self.bus_stop_entry_steering_angle = self._float_param(
+            "bus_stop_entry_steering_angle")
         self.bus_stop_align_gain_multiplier = self._float_param(
             "bus_stop_align_gain_multiplier")
         self.bus_stop_align_steering_limit = self._float_param(
@@ -288,6 +399,101 @@ class DecisionMakingNode(Node):
         self.bus_stop_wait_pose_y = self._float_param("bus_stop_wait_pose_y")
         self.bus_stop_wait_pose_radius = self._float_param(
             "bus_stop_wait_pose_radius")
+        self.parking_enabled = self._bool_param("parking_enabled")
+        self.parking_pose_enabled = self._bool_param("parking_pose_enabled")
+        self.parking_pose_x = self._float_param("parking_pose_x")
+        self.parking_pose_y = self._float_param("parking_pose_y")
+        self.parking_pose_radius = self._float_param("parking_pose_radius")
+        self.parking_search_timeout = self._float_param("parking_search_timeout")
+        self.parking_clear_distance = self._float_param("parking_clear_distance")
+        self.parking_clear_frames = self._int_param("parking_clear_frames")
+        self.parking_search_speed = self._float_param("parking_search_speed")
+        self.parking_speed = self._float_param("parking_speed")
+        self.parking_entry_duration = self._float_param("parking_entry_duration")
+        self.parking_align_duration = self._float_param("parking_align_duration")
+        self.parking_entry_steering_angle = self._float_param(
+            "parking_entry_steering_angle")
+        self.parking_align_steering_angle = self._float_param(
+            "parking_align_steering_angle")
+        self.parking_target_enabled = self._bool_param(
+            "parking_target_enabled")
+        self.parking_target_x = self._float_param("parking_target_x")
+        self.parking_target_y = self._float_param("parking_target_y")
+        self.parking_target_radius = self._float_param(
+            "parking_target_radius")
+        self.parking_route_default_radius = self._float_param(
+            "parking_route_default_radius")
+        self.parking_route_points = self._parse_parking_route_points(
+            str(self.get_parameter("parking_route_points").value or ""))
+        self.parking_route_steering_gain = self._float_param(
+            "parking_route_steering_gain")
+        self.parking_route_steering_limit = self._float_param(
+            "parking_route_steering_limit")
+        self.parking_route_slow_distance = self._float_param(
+            "parking_route_slow_distance")
+        self.parking_min_speed = self._float_param("parking_min_speed")
+        self.parking_settle_duration = self._float_param(
+            "parking_settle_duration")
+        self.parking_disable_obstacles = self._bool_param(
+            "parking_disable_obstacles")
+        self.parking_script_enabled = self._bool_param(
+            "parking_script_enabled")
+        self.parking_pre_align_duration = self._float_param(
+            "parking_pre_align_duration")
+        self.parking_pre_align_speed = self._float_param(
+            "parking_pre_align_speed")
+        self.parking_pre_align_gain_multiplier = self._float_param(
+            "parking_pre_align_gain_multiplier")
+        self.parking_pre_align_steering_limit = self._float_param(
+            "parking_pre_align_steering_limit")
+        self.parking_script_straight_duration = self._float_param(
+            "parking_script_straight_duration")
+        self.parking_script_shift_duration = self._float_param(
+            "parking_script_shift_duration")
+        self.parking_script_final_duration = self._float_param(
+            "parking_script_final_duration")
+        self.parking_script_shift_steering = self._float_param(
+            "parking_script_shift_steering")
+        self.parking_script_right_duration = self._float_param(
+            "parking_script_right_duration")
+        self.parking_script_right_steering = self._float_param(
+            "parking_script_right_steering")
+        self.parking_script_shift_speed = self._float_param(
+            "parking_script_shift_speed")
+        self.parking_target_start_distance = self._float_param(
+            "parking_target_start_distance")
+        self.parking_target_timeout = self._float_param(
+            "parking_target_timeout")
+        self.parking_target_steering_gain = self._float_param(
+            "parking_target_steering_gain")
+        self.parking_target_steering_limit = self._float_param(
+            "parking_target_steering_limit")
+        self.parking_target_steer_sign = self._float_param(
+            "parking_target_steer_sign")
+        self.parking_target_slow_distance = self._float_param(
+            "parking_target_slow_distance")
+        self.parking_target_passed_forward_margin = self._float_param(
+            "parking_target_passed_forward_margin")
+        self.parking_target_passed_lateral_tolerance = self._float_param(
+            "parking_target_passed_lateral_tolerance")
+        self.parking_final_yaw_enabled = self._bool_param(
+            "parking_final_yaw_enabled")
+        self.parking_final_yaw = self._float_param("parking_final_yaw")
+        self.parking_final_yaw_tolerance = self._float_param(
+            "parking_final_yaw_tolerance")
+        self.parking_final_yaw_gain = self._float_param(
+            "parking_final_yaw_gain")
+        self.parking_align_speed = self._float_param("parking_align_speed")
+        self.parking_line_align_gain_multiplier = self._float_param(
+            "parking_line_align_gain_multiplier")
+        self.parking_line_align_weight = self._float_param(
+            "parking_line_align_weight")
+        self.parking_heading_align_tolerance = self._float_param(
+            "parking_heading_align_tolerance")
+        self.parking_heading_align_weight = self._float_param(
+            "parking_heading_align_weight")
+        self.parking_heading_align_speed_ratio = self._float_param(
+            "parking_heading_align_speed_ratio")
         self.range_fresh_timeout = self._float_param("range_fresh_timeout")
 
         self.state = VehicleState.NORMAL
@@ -301,6 +507,8 @@ class DecisionMakingNode(Node):
         self.pending_turn_ready_at = 0.0
         self.pose_turn_consumed = False
         self.pose_turn_align_pending = False
+        self.active_pose_turn_direction = None
+        self.active_pose_turn_align_duration = 0.0
         self.obstacle_ignore_until = 0.0
         self.have_odom = False
         self.car_x = 0.0
@@ -323,12 +531,19 @@ class DecisionMakingNode(Node):
         self.bus_stop_clear_count = 0
         self.bus_stop_requested = False
         self.bus_stop_pose_consumed = False
+        self.bus_stop_task_completed = False
+        self.obstacle_response_disabled = False
+        self.parking_clear_count = 0
+        self.parking_pose_consumed = False
+        self.parking_requested = False
+        self.parking_route_index = 0
         self.stop_requested = False
         self.last_action_times = {}
 
         self.red_light_active = False
         self.traffic_light_detection_active = False
         self.traffic_stop_consumed = False
+        self.active_traffic_stop_point = None
         self.last_red_light_seen_at = 0.0
         self.last_green_light_seen_at = 0.0
         self.last_sign_summary = "none"
@@ -390,7 +605,8 @@ class DecisionMakingNode(Node):
         self.get_logger().info(
             "DecisionMaking aktif: levha + kavsak + LiDAR + ultrasonik "
             f"durum makinesi | konum donusu="
-            f"{'acik' if self.pose_turn_enabled else 'kapali'} | "
+            f"{'acik' if self.pose_turn_enabled else 'kapali'} "
+            f"({len(self.pose_turn_points)} nokta) | "
             f"levha donusu={'acik' if self.sign_turn_enabled else 'kapali'}")
         apply_log_level(self)
 
@@ -405,6 +621,124 @@ class DecisionMakingNode(Node):
         if isinstance(value, str):
             return value.strip().lower() in {"1", "true", "yes", "on"}
         return bool(value)
+
+    def _parse_pose_turn_points(self, raw_points):
+        points = []
+        if raw_points:
+            for idx, item in enumerate(raw_points.split(";"), start=1):
+                fields = [part.strip() for part in item.split(":")]
+                if len(fields) == 3:
+                    direction = self.pose_turn_direction
+                    x_str, y_str, radius_str = fields
+                elif len(fields) == 4:
+                    direction, x_str, y_str, radius_str = fields
+                    direction = direction.lower()
+                else:
+                    self.get_logger().warn(
+                        f"Gecersiz pose_turn_points girdisi atlandi: {item}")
+                    continue
+
+                if direction not in {"left", "right"}:
+                    self.get_logger().warn(
+                        f"Gecersiz konum donusu yonu atlandi: {direction}")
+                    continue
+
+                try:
+                    points.append({
+                        "name": f"pose_turn_{idx}",
+                        "direction": direction,
+                        "x": float(x_str),
+                        "y": float(y_str),
+                        "radius": float(radius_str),
+                        "consumed": False,
+                    })
+                except ValueError:
+                    self.get_logger().warn(
+                        f"Gecersiz pose_turn_points sayilari atlandi: {item}")
+
+        if not points and self.pose_turn_enabled:
+            points.append({
+                "name": "pose_turn_legacy",
+                "direction": self.pose_turn_direction,
+                "x": self.pose_turn_x,
+                "y": self.pose_turn_y,
+                "radius": self.pose_turn_radius,
+                "consumed": False,
+            })
+
+        return points
+
+    def _parse_traffic_stop_points(self, raw_points):
+        points = []
+        if raw_points:
+            for idx, item in enumerate(raw_points.split(";"), start=1):
+                fields = [part.strip() for part in item.split(":")]
+                if len(fields) != 3:
+                    self.get_logger().warn(
+                        f"Gecersiz traffic_stop_points girdisi atlandi: {item}")
+                    continue
+
+                try:
+                    x, y, radius = (float(value) for value in fields)
+                except ValueError:
+                    self.get_logger().warn(
+                        f"Gecersiz traffic_stop_points sayilari atlandi: {item}")
+                    continue
+
+                points.append({
+                    "name": f"traffic_stop_{idx}",
+                    "x": x,
+                    "y": y,
+                    "radius": radius,
+                    "consumed": False,
+                })
+
+        if not points and self.traffic_stop_pose_enabled:
+            points.append({
+                "name": "traffic_stop_legacy",
+                "x": self.traffic_stop_x,
+                "y": self.traffic_stop_y,
+                "radius": self.traffic_stop_radius,
+                "consumed": False,
+            })
+
+        return points
+
+    def _parse_parking_route_points(self, raw_points):
+        points = []
+        if raw_points:
+            for idx, item in enumerate(raw_points.split(";"), start=1):
+                fields = [part.strip() for part in item.split(":")]
+                if len(fields) == 2:
+                    x_str, y_str = fields
+                    radius = self.parking_route_default_radius
+                elif len(fields) == 3:
+                    x_str, y_str, radius_str = fields
+                    try:
+                        radius = float(radius_str)
+                    except ValueError:
+                        self.get_logger().warn(
+                            f"Gecersiz parking_route_points yari capi "
+                            f"atlandi: {item}")
+                        continue
+                else:
+                    self.get_logger().warn(
+                        f"Gecersiz parking_route_points girdisi atlandi: {item}")
+                    continue
+
+                try:
+                    points.append({
+                        "name": f"park_route_{idx}",
+                        "x": float(x_str),
+                        "y": float(y_str),
+                        "radius": radius,
+                    })
+                except ValueError:
+                    self.get_logger().warn(
+                        f"Gecersiz parking_route_points sayilari atlandi: "
+                        f"{item}")
+
+        return points
 
     def lateral_callback(self, msg):
         self.lateral_deviation = float(np.clip(msg.data, -1.0, 1.0))
@@ -526,10 +860,18 @@ class DecisionMakingNode(Node):
             if area >= self.sign_action_area_ratio:
                 if name == "dur" and self._action_ready("dur", now):
                     self.stop_requested = True
-                elif name in {"durak", "park"} and self._action_ready(
-                    "durak", now
+                elif (
+                    name == "durak"
+                    and not self.bus_stop_task_completed
+                    and self._action_ready("durak", now)
                 ):
                     self.bus_stop_requested = True
+                elif (
+                    name == "park"
+                    and self.parking_enabled
+                    and self._action_ready("park", now)
+                ):
+                    self.parking_requested = True
 
         light_seen = red_seen or green_seen
         if light_seen and not self.traffic_light_detection_active:
@@ -537,12 +879,12 @@ class DecisionMakingNode(Node):
             self.get_logger().info(
                 "Sign Detection trafik isigini gordu: isik karari aktif.")
 
-        if self.traffic_light_detection_active and green_seen:
-            self.last_green_light_seen_at = now
-            self.red_light_active = False
-        elif self.traffic_light_detection_active and red_seen:
+        if self.traffic_light_detection_active and red_seen:
             self.last_red_light_seen_at = now
             self.red_light_active = True
+        elif self.traffic_light_detection_active and green_seen:
+            self.last_green_light_seen_at = now
+            self.red_light_active = False
 
         self.last_sign_summary = ",".join(sorted(set(visible_names))) or "none"
 
@@ -582,8 +924,10 @@ class DecisionMakingNode(Node):
     def _pose_turn_controls_direction(self, direction):
         return (
             self.pose_turn_enabled
-            and not self.pose_turn_consumed
-            and self.pose_turn_direction == direction
+            and any(
+                not point["consumed"] and point["direction"] == direction
+                for point in self.pose_turn_points
+            )
         )
 
     def _check_pose_turn(self, now):
@@ -595,39 +939,90 @@ class DecisionMakingNode(Node):
         ):
             return False
 
-        distance = math.hypot(
-            self.car_x - self.pose_turn_x,
-            self.car_y - self.pose_turn_y,
-        )
-        if distance > self.pose_turn_radius:
+        selected = None
+        selected_distance = float("inf")
+        for point in self.pose_turn_points:
+            if point["consumed"]:
+                continue
+            distance = math.hypot(
+                self.car_x - point["x"],
+                self.car_y - point["y"],
+            )
+            if distance <= point["radius"]:
+                selected = point
+                selected_distance = distance
+                break
+
+        if selected is None:
             return False
 
-        direction = self.pose_turn_direction
+        direction = selected["direction"]
         target = (
             VehicleState.TURN_LEFT
             if direction == "left"
             else VehicleState.TURN_RIGHT
         )
-        self.pose_turn_consumed = True
+        selected["consumed"] = True
+        self.pose_turn_consumed = all(
+            point["consumed"] for point in self.pose_turn_points)
         self.pose_turn_align_pending = True
+        self.active_pose_turn_direction = direction
+        self.active_pose_turn_align_duration = (
+            self._pose_turn_align_duration(direction))
         self.pending_turn = None
         self.pending_turn_expires_at = 0.0
         self.pending_turn_ready_at = 0.0
         self.last_action_times[f"turn_{direction}"] = now
         self._transition(
             target,
-            f"konum tetigi {direction}: "
+            f"konum tetigi {selected['name']} {direction}: "
             f"x={self.car_x:.2f}, y={self.car_y:.2f}, "
-            f"hedefe={distance:.2f}m",
+            f"hedefe={selected_distance:.2f}m",
         )
         return True
 
-    def _traffic_stop_distance(self):
+    def _traffic_stop_distance(self, point=None):
         if not self.have_odom:
             return float("inf")
+        if point is None:
+            return math.hypot(
+                self.car_x - self.traffic_stop_x,
+                self.car_y - self.traffic_stop_y,
+            )
         return math.hypot(
-            self.car_x - self.traffic_stop_x,
-            self.car_y - self.traffic_stop_y,
+            self.car_x - point["x"],
+            self.car_y - point["y"],
+        )
+
+    def _next_traffic_stop_point(self):
+        if not self.have_odom:
+            return None, float("inf")
+
+        for point in self.traffic_stop_points:
+            if point["consumed"]:
+                continue
+            distance = self._traffic_stop_distance(point)
+            if distance <= point["radius"]:
+                return point, distance
+
+        return None, float("inf")
+
+    def _consume_active_traffic_stop(self):
+        if self.active_traffic_stop_point is not None:
+            self.active_traffic_stop_point["consumed"] = True
+            self.active_traffic_stop_point = None
+
+        if self.traffic_stop_points:
+            self.traffic_stop_consumed = all(
+                point["consumed"] for point in self.traffic_stop_points)
+        else:
+            self.traffic_stop_consumed = True
+
+    def _green_light_fresh(self, now):
+        return (
+            self.last_green_light_seen_at > 0.0
+            and now - self.last_green_light_seen_at
+            <= self.traffic_green_fresh_duration
         )
 
     def _check_traffic_light_stop(self):
@@ -643,25 +1038,28 @@ class DecisionMakingNode(Node):
         if self.traffic_stop_consumed:
             return False
 
-        distance = self._traffic_stop_distance()
-        if distance > self.traffic_stop_radius:
+        point, distance = self._next_traffic_stop_point()
+        if point is None:
             return False
 
-        if self.red_light_active:
-            self._transition(
-                VehicleState.TRAFFIC_LIGHT_STOP,
-                f"trafik isigi konumu: kirmizi/sari "
-                f"(hedefe={distance:.2f}m)",
-            )
-            return True
-
-        if self.traffic_light_detection_active:
-            self.traffic_stop_consumed = True
+        now = time.monotonic()
+        if self._green_light_fresh(now) and not self.red_light_active:
+            point["consumed"] = True
+            self.traffic_stop_consumed = all(
+                item["consumed"] for item in self.traffic_stop_points)
             self.get_logger().info(
-                f"Trafik isigi konumu: yesil/serbest gecis "
+                f"{point['name']}: yesil/serbest gecis "
                 f"(hedefe={distance:.2f}m)")
+            return False
 
-        return False
+        self.active_traffic_stop_point = point
+        reason = "kirmizi/sari" if self.red_light_active else "isik karari bekleniyor"
+        self._transition(
+            VehicleState.TRAFFIC_LIGHT_STOP,
+            f"{point['name']}: {reason} "
+            f"(hedefe={distance:.2f}m)",
+        )
+        return True
 
     def _transition(self, new_state, reason):
         if new_state == self.state:
@@ -679,6 +1077,18 @@ class DecisionMakingNode(Node):
             self.obstacle_right_centered_count = 0
         self.get_logger().warn(
             f"KARAR: {old_state.value} -> {new_state.value} | {reason}")
+
+    def _finish_bus_stop_task(self):
+        self.bus_stop_task_completed = True
+        self.obstacle_response_disabled = True
+        self.bus_stop_requested = False
+        self.bus_stop_clear_count = 0
+        self.obstacle_detected = False
+        self.obstacle_distance = float("inf")
+        self._transition(
+            VehicleState.NORMAL,
+            "durak gorevi tamamlandi; durak ve engel tepkileri kapatildi",
+        )
 
     def _elapsed(self, now):
         return now - self.state_started_at
@@ -703,9 +1113,202 @@ class DecisionMakingNode(Node):
             )
         return self.right_barrier_distance >= self.bus_stop_clear_distance
 
+    def _right_parking_area_clear(self, now):
+        front_fresh = (
+            now - self.right_front_range_time <= self.range_fresh_timeout)
+        rear_fresh = (
+            now - self.right_rear_range_time <= self.range_fresh_timeout)
+
+        if front_fresh and rear_fresh:
+            return (
+                self.right_front_range >= self.parking_clear_distance
+                and self.right_rear_range >= self.parking_clear_distance
+            )
+        return self.right_barrier_distance >= self.parking_clear_distance
+
+    def _parking_route_active(self):
+        return bool(self.parking_route_points) and self.have_odom
+
+    def _parking_current_target(self):
+        if self._parking_route_active():
+            index = min(
+                self.parking_route_index,
+                len(self.parking_route_points) - 1,
+            )
+            point = self.parking_route_points[index]
+            return point["x"], point["y"], point["radius"], point["name"]
+
+        if self.parking_target_enabled and self.have_odom:
+            return (
+                self.parking_target_x,
+                self.parking_target_y,
+                self.parking_target_radius,
+                "park_target",
+            )
+
+        return None
+
+    def _parking_final_target(self):
+        if self.parking_route_points and self.have_odom:
+            point = self.parking_route_points[-1]
+            return point["x"], point["y"], point["radius"], point["name"]
+
+        if self.parking_target_enabled and self.have_odom:
+            return (
+                self.parking_target_x,
+                self.parking_target_y,
+                self.parking_target_radius,
+                "park_target",
+            )
+
+        return None
+
+    def _parking_target_active(self):
+        return self._parking_current_target() is not None
+
+    def _parking_target_delta(self):
+        target = self._parking_current_target()
+        if target is None:
+            return 0.0, 0.0, float("inf")
+
+        target_x, target_y, _, _ = target
+        dx = target_x - self.car_x
+        dy = target_y - self.car_y
+        return dx, dy, math.hypot(dx, dy)
+
+    def _parking_target_body_delta(self):
+        if not self._parking_target_active():
+            return 0.0, 0.0, float("inf")
+
+        dx, dy, distance = self._parking_target_delta()
+        cos_yaw = math.cos(self.car_yaw)
+        sin_yaw = math.sin(self.car_yaw)
+        forward = cos_yaw * dx + sin_yaw * dy
+        left = -sin_yaw * dx + cos_yaw * dy
+        return forward, left, distance
+
+    def _parking_final_target_delta(self):
+        target = self._parking_final_target()
+        if target is None:
+            return 0.0, 0.0, float("inf")
+
+        target_x, target_y, _, _ = target
+        dx = target_x - self.car_x
+        dy = target_y - self.car_y
+        return dx, dy, math.hypot(dx, dy)
+
+    def _parking_final_target_body_delta(self):
+        target = self._parking_final_target()
+        if target is None:
+            return 0.0, 0.0, float("inf")
+
+        dx, dy, distance = self._parking_final_target_delta()
+        cos_yaw = math.cos(self.car_yaw)
+        sin_yaw = math.sin(self.car_yaw)
+        forward = cos_yaw * dx + sin_yaw * dy
+        left = -sin_yaw * dx + cos_yaw * dy
+        return forward, left, distance
+
+    def _parking_target_distance(self):
+        if not self._parking_target_active():
+            return float("inf")
+        _, _, distance = self._parking_target_delta()
+        return distance
+
+    def _parking_target_reached(self):
+        target = self._parking_current_target()
+        if target is None:
+            return False
+        _, _, radius, _ = target
+        return (
+            self._parking_target_active()
+            and self._parking_target_distance() <= radius
+        )
+
+    def _parking_script_total_duration(self):
+        return (
+            max(self.parking_script_straight_duration, 0.0)
+            + max(self.parking_script_shift_duration, 0.0)
+            + max(self.parking_script_right_duration, 0.0)
+            + max(self.parking_script_final_duration, 0.0)
+        )
+
+    def _parking_script_phase(self, elapsed=None):
+        if elapsed is None:
+            elapsed = self._elapsed(time.monotonic())
+
+        straight_1 = max(self.parking_script_straight_duration, 0.0)
+        shift = max(self.parking_script_shift_duration, 0.0)
+        right = max(self.parking_script_right_duration, 0.0)
+        pre_align = min(
+            max(self.parking_pre_align_duration, 0.0),
+            straight_1,
+        )
+        if elapsed < pre_align:
+            return "lane_align"
+        if elapsed < straight_1:
+            return "straight_1"
+        if elapsed < straight_1 + shift:
+            return "shift_left"
+        if elapsed < straight_1 + shift + right:
+            return "shift_right"
+        return "straight_2"
+
+    def _parking_script_done(self, elapsed):
+        total_duration = self._parking_script_total_duration()
+        target = self._parking_final_target()
+        if target is None:
+            return elapsed >= total_duration
+
+        _, _, radius, _ = target
+        _, _, distance = self._parking_final_target_body_delta()
+        if distance <= radius:
+            return True
+
+        return elapsed >= total_duration
+
+    def _update_parking_route_progress(self, elapsed=None):
+        if self.parking_script_enabled:
+            if elapsed is None:
+                elapsed = self._elapsed(time.monotonic())
+            return self._parking_script_done(elapsed)
+
+        if not self._parking_target_active():
+            return False
+
+        while self._parking_target_reached():
+            if (
+                self._parking_route_active()
+                and self.parking_route_index < len(self.parking_route_points) - 1
+            ):
+                reached = self.parking_route_points[self.parking_route_index]
+                self.parking_route_index += 1
+                target = self.parking_route_points[self.parking_route_index]
+                self.get_logger().warn(
+                    f"PARK: {reached['name']} gecildi, "
+                    f"siradaki hedef={target['name']} "
+                    f"({target['x']:.2f}, {target['y']:.2f})",
+                    throttle_duration_sec=0.5,
+                )
+                continue
+            return True
+
+        return False
+
+    def _parking_target_yaw_error(self):
+        if not self._parking_target_active():
+            return 0.0
+        dx, dy, _ = self._parking_target_delta()
+        target_yaw = math.atan2(dy, dx)
+        return self._normalize_angle(target_yaw - self.car_yaw)
+
+    def _parking_final_yaw_error(self):
+        return self._normalize_angle(self.parking_final_yaw - self.car_yaw)
+
     def _check_bus_stop_pose(self):
         if (
             not self.bus_stop_pose_enabled
+            or self.bus_stop_task_completed
             or self.bus_stop_pose_consumed
             or not self.have_odom
             or self.state != VehicleState.NORMAL
@@ -727,6 +1330,36 @@ class DecisionMakingNode(Node):
             f"durak konumu tetiklendi: "
             f"x={self.car_x:.2f}, y={self.car_y:.2f}, "
             f"hedefe={distance:.2f}m, saga kayis",
+        )
+        return True
+
+    def _check_parking_pose(self):
+        if (
+            not self.parking_enabled
+            or not self.parking_pose_enabled
+            or self.parking_pose_consumed
+            or not self.have_odom
+            or self.state != VehicleState.NORMAL
+        ):
+            return False
+
+        distance = math.hypot(
+            self.car_x - self.parking_pose_x,
+            self.car_y - self.parking_pose_y,
+        )
+        if distance > self.parking_pose_radius:
+            return False
+
+        self.parking_pose_consumed = True
+        self.parking_clear_count = 0
+        self.parking_route_index = 0
+        self.parking_requested = False
+        self.last_action_times["park"] = time.monotonic()
+        self._transition(
+            VehicleState.PARK_ROUTE,
+            f"PARK_ROUTE basladi: "
+            f"x={self.car_x:.2f}, y={self.car_y:.2f}, "
+            f"hedefe={distance:.2f}m",
         )
         return True
 
@@ -776,11 +1409,71 @@ class DecisionMakingNode(Node):
             throttle_duration_sec=1.0,
         )
 
+    def _pose_turn_align_duration(self, direction):
+        if direction == "left":
+            return self.pose_turn_left_align_duration
+        if direction == "right":
+            return self.pose_turn_right_align_duration
+        return self.pose_turn_align_duration
+
+    def _turn_duration(self, direction):
+        if (
+            direction == "right"
+            and self.active_pose_turn_direction == "right"
+            and self.pose_turn_align_pending
+        ):
+            return self.pose_turn_right_duration
+        if direction == "right":
+            return self.right_turn_duration
+        if direction == "left":
+            return self.left_turn_duration
+        return self.turn_max_duration
+
     def _obstacle_response_allowed(self, now):
         return now >= self.obstacle_ignore_until
 
+    def _parking_control_state(self):
+        return self.state in {
+            VehicleState.PARK_SEARCH,
+            VehicleState.PARK_ROUTE,
+            VehicleState.PARK_SETTLE,
+            VehicleState.PARK_ENTER,
+            VehicleState.PARK_ALIGN,
+            VehicleState.PARKED,
+        }
+
+    def _obstacle_start_allowed(self, now):
+        if not self._obstacle_response_allowed(now):
+            return False
+        if (
+            not self.obstacle_start_allow_intersection
+            and self.intersection_direction != 0
+        ):
+            self.get_logger().warn(
+                "Engel tetigi bekletildi: kavsak/ayrim bolgesinde.",
+                throttle_duration_sec=1.0,
+            )
+            return False
+        if abs(self.lateral_deviation) > self.obstacle_start_lateral_tolerance:
+            self.get_logger().warn(
+                "Engel tetigi bekletildi: arac serit merkezinde degil "
+                f"(lane={self.lateral_deviation:.2f}).",
+                throttle_duration_sec=1.0,
+            )
+            return False
+        if abs(self.heading_deviation) > self.obstacle_start_heading_tolerance:
+            self.get_logger().warn(
+                "Engel tetigi bekletildi: arac acisi henuz oturmadi "
+                f"(heading={self.heading_deviation:.2f}).",
+                throttle_duration_sec=1.0,
+            )
+            return False
+        return True
+
     def _barrier_stop_allowed(self, now):
         if not self._obstacle_response_allowed(now):
+            return False
+        if self.parking_disable_obstacles and self._parking_control_state():
             return False
         return self.state not in {
             VehicleState.TURN_LEFT,
@@ -801,13 +1494,13 @@ class DecisionMakingNode(Node):
         elapsed = self._elapsed(now)
 
         if self.state == VehicleState.TURN_LEFT:
-            if elapsed >= self.left_turn_duration:
+            if elapsed >= self._turn_duration("left"):
                 self.pending_turn = None
                 self.pending_turn_ready_at = 0.0
                 self._start_post_turn_obstacle_ignore(now)
                 if (
                     self.pose_turn_align_pending
-                    and self.pose_turn_align_duration > 0.0
+                    and self.active_pose_turn_align_duration > 0.0
                 ):
                     self._transition(
                         VehicleState.POSE_TURN_ALIGN,
@@ -815,6 +1508,8 @@ class DecisionMakingNode(Node):
                     )
                 else:
                     self.pose_turn_align_pending = False
+                    self.active_pose_turn_direction = None
+                    self.active_pose_turn_align_duration = 0.0
                     self._transition(
                         VehicleState.NORMAL,
                         "sol donus tamamlandi",
@@ -822,13 +1517,13 @@ class DecisionMakingNode(Node):
             return
 
         if self.state == VehicleState.TURN_RIGHT:
-            if elapsed >= self.right_turn_duration:
+            if elapsed >= self._turn_duration("right"):
                 self.pending_turn = None
                 self.pending_turn_ready_at = 0.0
                 self._start_post_turn_obstacle_ignore(now)
                 if (
                     self.pose_turn_align_pending
-                    and self.pose_turn_align_duration > 0.0
+                    and self.active_pose_turn_align_duration > 0.0
                 ):
                     self._transition(
                         VehicleState.POSE_TURN_ALIGN,
@@ -836,6 +1531,8 @@ class DecisionMakingNode(Node):
                     )
                 else:
                     self.pose_turn_align_pending = False
+                    self.active_pose_turn_direction = None
+                    self.active_pose_turn_align_duration = 0.0
                     self._transition(
                         VehicleState.NORMAL,
                         "sag donus tamamlandi",
@@ -843,8 +1540,11 @@ class DecisionMakingNode(Node):
             return
 
         if self.state == VehicleState.POSE_TURN_ALIGN:
-            if elapsed >= self.pose_turn_align_duration:
+            if elapsed >= self.active_pose_turn_align_duration:
                 self.pose_turn_align_pending = False
+                self.active_pose_turn_direction = None
+                self.active_pose_turn_align_duration = 0.0
+                self._start_post_turn_obstacle_ignore(now)
                 self._transition(
                     VehicleState.NORMAL,
                     "konum donusu serit takibi tamamlandi",
@@ -857,8 +1557,8 @@ class DecisionMakingNode(Node):
             return
 
         if self.state == VehicleState.TRAFFIC_LIGHT_STOP:
-            if not self.red_light_active:
-                self.traffic_stop_consumed = True
+            if self._green_light_fresh(now) and not self.red_light_active:
+                self._consume_active_traffic_stop()
                 self._transition(VehicleState.NORMAL, "yesil isik")
             elif (
                 self.traffic_red_lost_release_delay > 0.0
@@ -867,7 +1567,7 @@ class DecisionMakingNode(Node):
                 >= self.traffic_red_lost_release_delay
             ):
                 self.red_light_active = False
-                self.traffic_stop_consumed = True
+                self._consume_active_traffic_stop()
                 self._transition(
                     VehicleState.NORMAL,
                     "kirmizi kayboldu, 5s sonra gecis",
@@ -908,7 +1608,11 @@ class DecisionMakingNode(Node):
                 self.obstacle_right_centered_count
                 >= self.avoidance_center_stable_frames
             )
-            if elapsed >= self.avoidance_right_align_duration and centered:
+            min_align_duration = max(
+                self.avoidance_right_align_duration,
+                self.avoidance_right_align_turn_duration,
+            )
+            if elapsed >= min_align_duration and centered:
                 self._transition(VehicleState.NORMAL, "sollama tamamlandi")
             elif elapsed >= self.avoidance_right_align_timeout:
                 self._transition(
@@ -937,39 +1641,26 @@ class DecisionMakingNode(Node):
             return
 
         if self.state == VehicleState.BUS_STOP_ENTER:
-            if self._bus_stop_wait_pose_reached():
-                self._transition(
-                    VehicleState.BUS_STOP_WAIT,
-                    f"durak bekleme konumuna gelindi, "
-                    f"{self.bus_stop_wait_duration:.0f}s bekle",
-                )
-                return
             if elapsed >= self.bus_stop_entry_duration:
                 self._transition(
                     VehicleState.BUS_STOP_ALIGN,
-                    "durak icinde hizalanma",
+                    "durak icinde araci duzleme",
                 )
             return
 
         if self.state == VehicleState.BUS_STOP_ALIGN:
-            if self._bus_stop_wait_pose_reached():
+            if elapsed >= self.bus_stop_align_duration:
                 self._transition(
-                    VehicleState.BUS_STOP_WAIT,
-                    f"durak bekleme konumuna gelindi, "
-                    f"{self.bus_stop_wait_duration:.0f}s bekle",
-                )
-            elif elapsed >= self.bus_stop_align_duration:
-                self.get_logger().warn(
-                    "Durak ic hedefe gidiliyor; hedefe ulasmadan bekleme yok.",
-                    throttle_duration_sec=1.0,
+                    VehicleState.BUS_STOP_EXIT,
+                    "durak cikisi: once duz ilerle",
                 )
             return
 
         if self.state == VehicleState.BUS_STOP_WAIT:
             if elapsed >= self.bus_stop_wait_duration:
                 self._transition(
-                    VehicleState.BUS_STOP_EXIT,
-                    "duraktan seride cikis",
+                    VehicleState.BUS_STOP_FINAL_ALIGN,
+                    "bekleme bitti, ikinci acili serit donusu",
                 )
             return
 
@@ -977,13 +1668,84 @@ class DecisionMakingNode(Node):
             if elapsed >= self.bus_stop_exit_duration:
                 self._transition(
                     VehicleState.BUS_STOP_EXIT_ALIGN,
-                    "seritte yeniden hizalanma",
+                    "seride ilk acili donus",
                 )
             return
 
         if self.state == VehicleState.BUS_STOP_EXIT_ALIGN:
             if elapsed >= self.bus_stop_exit_align_duration:
-                self._transition(VehicleState.NORMAL, "durak gorevi tamamlandi")
+                if self.bus_stop_wait_duration > 0.0:
+                    self._transition(
+                        VehicleState.BUS_STOP_WAIT,
+                        f"ilk {self.bus_stop_exit_align_duration:.0f}s "
+                        "acili donus bitti, "
+                        f"{self.bus_stop_wait_duration:.0f}s bekle",
+                    )
+                else:
+                    self._transition(
+                        VehicleState.BUS_STOP_FINAL_ALIGN,
+                        f"ikinci {self.bus_stop_final_align_duration:.0f}s "
+                        "acili serit donusu",
+                    )
+            return
+
+        if self.state == VehicleState.BUS_STOP_FINAL_ALIGN:
+            if elapsed >= self.bus_stop_final_align_duration:
+                if self.bus_stop_lane_align_duration > 0.0:
+                    self._transition(
+                        VehicleState.BUS_STOP_LANE_ALIGN,
+                        "son donus bitti, serit takibiyle toparlan",
+                    )
+                else:
+                    self._finish_bus_stop_task()
+            return
+
+        if self.state == VehicleState.BUS_STOP_LANE_ALIGN:
+            centered = self._lane_is_centered_for_overtake()
+            if elapsed >= self.bus_stop_lane_align_duration and centered:
+                self._finish_bus_stop_task()
+            elif (
+                self.bus_stop_lane_align_timeout > 0.0
+                and elapsed >= self.bus_stop_lane_align_timeout
+            ):
+                self._finish_bus_stop_task()
+            return
+
+        if self.state in {
+            VehicleState.PARK_SEARCH,
+            VehicleState.PARK_ENTER,
+            VehicleState.PARK_ALIGN,
+        }:
+            self._transition(
+                VehicleState.PARK_ROUTE,
+                "eski park state'i sade waypoint rotasina alindi",
+            )
+            return
+
+        if self.state == VehicleState.PARK_ROUTE:
+            if not self._parking_target_active():
+                self.get_logger().warn(
+                    "PARK_ROUTE: odom veya park hedefi bekleniyor.",
+                    throttle_duration_sec=1.0,
+                )
+                return
+
+            if self._update_parking_route_progress(elapsed):
+                self._transition(
+                    VehicleState.PARK_SETTLE,
+                    "son park noktasina ulasildi, park sabitleniyor",
+                )
+            return
+
+        if self.state == VehicleState.PARK_SETTLE:
+            if elapsed >= max(self.parking_settle_duration, 0.0):
+                self._transition(
+                    VehicleState.PARKED,
+                    "park tamamlandi",
+                )
+            return
+
+        if self.state == VehicleState.PARKED:
             return
 
         if self._check_traffic_light_stop():
@@ -992,21 +1754,37 @@ class DecisionMakingNode(Node):
             self.stop_requested = False
             self.last_action_times["dur"] = now
             self._transition(VehicleState.STOP_SIGN_WAIT, "dur levhasi")
-        elif self.bus_stop_requested:
+        elif self.bus_stop_requested and not self.bus_stop_task_completed:
             self.bus_stop_requested = False
             self.bus_stop_clear_count = 0
             self._transition(
                 VehicleState.BUS_STOP_CHECK,
                 "durak alani doluluk kontrolu",
             )
+        elif self.bus_stop_requested:
+            self.bus_stop_requested = False
         elif self._check_bus_stop_pose():
             return
+        elif self._check_parking_pose():
+            return
+        elif self.parking_requested and self.parking_enabled:
+            self.parking_requested = False
+            self.parking_clear_count = 0
+            self.parking_route_index = 0
+            self.last_action_times["park"] = now
+            self._transition(
+                VehicleState.PARK_ROUTE,
+                "park tabelasi algilandi, waypoint rotasi basladi",
+            )
+        elif self.parking_requested:
+            self.parking_requested = False
         elif self._check_pose_turn(now):
             return
         elif (
-            self.obstacle_detected
+            not self.obstacle_response_disabled
+            and self.obstacle_detected
             and self.obstacle_distance <= self.obstacle_trigger_distance
-            and self._obstacle_response_allowed(now)
+            and self._obstacle_start_allowed(now)
         ):
             self._start_obstacle_avoidance()
         elif self._intersection_supports_pending_turn():
@@ -1103,6 +1881,21 @@ class DecisionMakingNode(Node):
         )
 
     def bus_stop_align_command(self):
+        return self.bus_stop_speed, 0.0
+
+    def bus_stop_enter_command(self):
+        return self.bus_stop_speed, -abs(self.bus_stop_entry_steering_angle)
+
+    def bus_stop_exit_command(self):
+        return self.bus_stop_speed, 0.0
+
+    def bus_stop_exit_align_command(self):
+        return self.bus_stop_speed, abs(self.bus_stop_steering_angle)
+
+    def bus_stop_final_align_command(self):
+        return self.bus_stop_exit_align_command()
+
+    def bus_stop_lane_align_command(self):
         steering = self.lane_steering(
             correct_heading=True,
             gain_multiplier=self.bus_stop_align_gain_multiplier,
@@ -1112,7 +1905,7 @@ class DecisionMakingNode(Node):
             -self.bus_stop_align_steering_limit,
             self.bus_stop_align_steering_limit,
         ))
-        return self.bus_stop_speed, steering
+        return self.bus_stop_lane_align_speed, steering
 
     def bus_stop_target_command(self):
         if not self.bus_stop_wait_pose_enabled or not self.have_odom:
@@ -1138,6 +1931,192 @@ class DecisionMakingNode(Node):
             speed = min(speed, self.bus_stop_speed * 0.75)
         return speed, steering
 
+    def parking_search_command(self):
+        return self.parking_search_speed, 0.0
+
+    def parking_target_command(self, allow_slowdown=True):
+        if not self._parking_target_active():
+            return self.parking_speed, -abs(self.parking_entry_steering_angle)
+
+        forward, left, distance = self._parking_target_body_delta()
+
+        lookahead = max(abs(forward), 1.0)
+        steering = (left / lookahead) * self.parking_target_steering_gain
+        steering *= self.parking_target_steer_sign
+        steering = float(np.clip(
+            steering,
+            -self.parking_target_steering_limit,
+            self.parking_target_steering_limit,
+        ))
+
+        speed = self.parking_speed
+        if allow_slowdown:
+            if distance <= self.parking_target_slow_distance:
+                speed = min(speed, self.parking_speed * 0.60)
+            if distance <= max(self.parking_target_radius * 2.0, 0.75):
+                speed = min(speed, self.parking_speed * 0.45)
+            if abs(left) > 2.0 or forward < 0.4:
+                speed = min(speed, self.parking_speed * 0.75)
+        return speed, steering
+
+    def parking_route_command(self):
+        if self.parking_script_enabled:
+            return self.parking_script_command()
+
+        target = self._parking_current_target()
+        if target is None:
+            return self.parking_speed, 0.0
+
+        _, _, radius, _ = target
+        forward, left, distance = self._parking_target_body_delta()
+        lookahead = max(abs(forward), 0.85)
+        steering = math.atan2(left, lookahead) * self.parking_route_steering_gain
+        steering = float(np.clip(
+            steering,
+            -self.parking_route_steering_limit,
+            self.parking_route_steering_limit,
+        ))
+
+        speed = self.parking_speed
+        if distance <= self.parking_route_slow_distance:
+            speed = min(
+                speed,
+                max(self.parking_min_speed, self.parking_speed * 0.62),
+            )
+        if distance <= max(radius * 2.0, 0.90):
+            speed = min(
+                speed,
+                max(self.parking_min_speed, self.parking_speed * 0.45),
+            )
+        if forward < 0.35:
+            speed = min(
+                speed,
+                max(self.parking_min_speed, self.parking_speed * 0.50),
+            )
+
+        return speed, steering
+
+    def parking_script_command(self):
+        elapsed = self._elapsed(time.monotonic())
+        phase = self._parking_script_phase(elapsed)
+
+        speed = self.parking_speed
+        steering = 0.0
+        if phase == "lane_align":
+            speed = min(self.parking_speed, self.parking_pre_align_speed)
+            steering = self.lane_steering(
+                correct_heading=True,
+                gain_multiplier=self.parking_pre_align_gain_multiplier,
+            )
+            steering = float(np.clip(
+                steering,
+                -self.parking_pre_align_steering_limit,
+                self.parking_pre_align_steering_limit,
+            ))
+        elif phase == "shift_left":
+            speed = min(self.parking_speed, self.parking_script_shift_speed)
+            steering = abs(self.parking_script_shift_steering)
+        elif phase == "shift_right":
+            speed = min(self.parking_speed, self.parking_script_shift_speed)
+            steering = -abs(self.parking_script_right_steering)
+
+        target = self._parking_final_target()
+        if target is not None:
+            _, _, radius, _ = target
+            forward, _, distance = self._parking_final_target_body_delta()
+            if distance <= self.parking_route_slow_distance:
+                speed = min(
+                    speed,
+                    max(self.parking_min_speed, self.parking_speed * 0.60),
+                )
+            if distance <= max(radius * 2.0, 0.90):
+                speed = min(
+                    speed,
+                    max(self.parking_min_speed, self.parking_speed * 0.45),
+                )
+            if phase != "straight_2" and forward < 0.35:
+                speed = min(
+                    speed,
+                    max(self.parking_min_speed, self.parking_speed * 0.50),
+                )
+
+        return speed, float(np.clip(
+            steering,
+            -self.parking_route_steering_limit,
+            self.parking_route_steering_limit,
+        ))
+
+    def parking_yaw_then_target_command(self, turn_speed):
+        if not (self._parking_target_active() and self.parking_final_yaw_enabled):
+            return None
+
+        yaw_error = self._parking_final_yaw_error()
+        if abs(yaw_error) > self.parking_final_yaw_tolerance:
+            steering = yaw_error * self.parking_final_yaw_gain
+            steering *= self.parking_target_steer_sign
+            steering = float(np.clip(
+                steering,
+                -self.parking_target_steering_limit,
+                self.parking_target_steering_limit,
+            ))
+            return turn_speed, steering
+
+        return self.parking_target_command(allow_slowdown=False)
+
+    def parking_enter_command(self):
+        if self._parking_route_active():
+            return self.parking_route_command()
+        if self._parking_target_active():
+            return self.parking_target_command(allow_slowdown=False)
+        return self.parking_speed, -abs(self.parking_entry_steering_angle)
+
+    def parking_line_align_command(self):
+        target_speed, target_steering = self.parking_target_command(
+            allow_slowdown=False)
+        line_steering = self.lane_steering(
+            correct_heading=True,
+            gain_multiplier=self.parking_line_align_gain_multiplier,
+        )
+        line_weight = float(np.clip(
+            self.parking_line_align_weight,
+            0.0,
+            1.0,
+        ))
+        if abs(self.heading_deviation) > self.parking_heading_align_tolerance:
+            line_weight = max(
+                line_weight,
+                float(np.clip(self.parking_heading_align_weight, 0.0, 1.0)),
+            )
+
+        steering = (
+            line_steering * line_weight
+            + target_steering * (1.0 - line_weight)
+        )
+        steering = float(np.clip(
+            steering,
+            -self.parking_target_steering_limit,
+            self.parking_target_steering_limit,
+        ))
+        speed = min(target_speed, self.parking_align_speed)
+        if abs(self.heading_deviation) > self.parking_heading_align_tolerance:
+            speed *= float(np.clip(
+                self.parking_heading_align_speed_ratio,
+                0.20,
+                1.0,
+            ))
+        return speed, steering
+
+    def parking_align_command(self):
+        if self._parking_route_active():
+            return self.parking_route_command()
+        yaw_target = self.parking_yaw_then_target_command(
+            self.parking_align_speed)
+        if yaw_target is not None:
+            return yaw_target
+        if self._parking_target_active():
+            return self.parking_line_align_command()
+        return self.parking_speed, abs(self.parking_align_steering_angle)
+
     def command_for_state(self):
         lane_steering = self.lane_steering(
             correct_heading=self.normal_lane_correct_heading,
@@ -1147,8 +2126,24 @@ class DecisionMakingNode(Node):
         if self.state == VehicleState.TURN_LEFT:
             return self.left_turn_speed, abs(self.left_turn_steering_angle)
         if self.state == VehicleState.TURN_RIGHT:
+            if (
+                self.active_pose_turn_direction == "right"
+                and self.pose_turn_align_pending
+            ):
+                return (
+                    self.pose_turn_right_speed,
+                    -abs(self.pose_turn_right_steering_angle),
+                )
             return self.right_turn_speed, -abs(self.right_turn_steering_angle)
         if self.state == VehicleState.POSE_TURN_ALIGN:
+            if self.active_pose_turn_direction == "right":
+                return (
+                    self.pose_turn_align_speed,
+                    self.lane_steering(
+                        correct_heading=self.normal_lane_correct_heading,
+                        gain_multiplier=self.normal_lane_gain_multiplier,
+                    ),
+                )
             return (
                 self.pose_turn_align_speed,
                 self.lane_steering(
@@ -1173,13 +2168,26 @@ class DecisionMakingNode(Node):
         if self.state == VehicleState.BUS_STOP_CHECK:
             return self.min_speed, lane_steering
         if self.state == VehicleState.BUS_STOP_ENTER:
-            return self.bus_stop_target_command()
+            return self.bus_stop_enter_command()
         if self.state == VehicleState.BUS_STOP_ALIGN:
-            return self.bus_stop_target_command()
-        if self.state == VehicleState.BUS_STOP_EXIT:
-            return self.bus_stop_speed, abs(self.bus_stop_steering_angle)
-        if self.state == VehicleState.BUS_STOP_EXIT_ALIGN:
             return self.bus_stop_align_command()
+        if self.state == VehicleState.BUS_STOP_EXIT:
+            return self.bus_stop_exit_command()
+        if self.state == VehicleState.BUS_STOP_EXIT_ALIGN:
+            return self.bus_stop_exit_align_command()
+        if self.state == VehicleState.BUS_STOP_FINAL_ALIGN:
+            return self.bus_stop_final_align_command()
+        if self.state == VehicleState.BUS_STOP_LANE_ALIGN:
+            return self.bus_stop_lane_align_command()
+        if self.state in {
+            VehicleState.PARK_SEARCH,
+            VehicleState.PARK_ENTER,
+            VehicleState.PARK_ALIGN,
+            VehicleState.PARK_ROUTE,
+        }:
+            return self.parking_route_command()
+        if self.state in {VehicleState.PARK_SETTLE, VehicleState.PARKED}:
+            return 0.0, 0.0
         return self.base_speed, lane_steering
 
     def decision_loop(self):
@@ -1189,17 +2197,27 @@ class DecisionMakingNode(Node):
             speed, steering = self.command_for_state()
 
             if (
-                (self.barrier_safety_stop and self._barrier_stop_allowed(now))
-                or (
-                    self.obstacle_detected
-                    and self.obstacle_distance <= self.emergency_stop_distance
-                    and self._obstacle_response_allowed(now)
-                    and self.state not in {
-                        VehicleState.OBSTACLE_ESCAPE,
-                        VehicleState.OBSTACLE_CENTER,
-                        VehicleState.OBSTACLE_RETURN,
-                        VehicleState.OBSTACLE_RIGHT_ALIGN,
-                    }
+                not self.obstacle_response_disabled
+                and (
+                    (
+                        self.barrier_safety_stop
+                        and self._barrier_stop_allowed(now)
+                    )
+                    or (
+                        self.obstacle_detected
+                        and self.obstacle_distance <= self.emergency_stop_distance
+                        and self._obstacle_response_allowed(now)
+                        and self.state not in {
+                            VehicleState.OBSTACLE_ESCAPE,
+                            VehicleState.OBSTACLE_CENTER,
+                            VehicleState.OBSTACLE_RETURN,
+                            VehicleState.OBSTACLE_RIGHT_ALIGN,
+                        }
+                        and not (
+                            self.parking_disable_obstacles
+                            and self._parking_control_state()
+                        )
+                    )
                 )
             ):
                 speed = 0.0
@@ -1243,6 +2261,70 @@ class DecisionMakingNode(Node):
                     f"speed={command.speed:.2f} steer={steering:.2f} "
                     f"lane={self.lateral_deviation:.2f} "
                     f"heading={self.heading_deviation:.2f}",
+                    throttle_duration_sec=0.5,
+                )
+
+            if self.state in {
+                VehicleState.BUS_STOP_ENTER,
+                VehicleState.BUS_STOP_ALIGN,
+                VehicleState.BUS_STOP_WAIT,
+                VehicleState.BUS_STOP_EXIT,
+                VehicleState.BUS_STOP_EXIT_ALIGN,
+                VehicleState.BUS_STOP_FINAL_ALIGN,
+                VehicleState.BUS_STOP_LANE_ALIGN,
+            }:
+                self.get_logger().warn(
+                    f"DURAK: state={self.state.value} "
+                    f"sure={self._elapsed(now):.1f}s "
+                    f"speed={command.speed:.2f} steer={steering:.2f} "
+                    f"lane={self.lateral_deviation:.2f} "
+                    f"heading={self.heading_deviation:.2f}",
+                    throttle_duration_sec=0.5,
+                )
+
+            if self.state in {
+                VehicleState.PARK_SEARCH,
+                VehicleState.PARK_ROUTE,
+                VehicleState.PARK_SETTLE,
+                VehicleState.PARK_ENTER,
+                VehicleState.PARK_ALIGN,
+                VehicleState.PARKED,
+            }:
+                target_text = ""
+                if self.parking_script_enabled:
+                    target = self._parking_final_target()
+                    if target is not None:
+                        forward, left, distance = (
+                            self._parking_final_target_body_delta())
+                        target_name = target[3]
+                        target_text = (
+                            f" phase={self._parking_script_phase(self._elapsed(now))}"
+                            f" hedef={target_name}"
+                            f" target={distance:.2f}m"
+                            f" forward={forward:.2f} left={left:.2f}"
+                        )
+                elif self._parking_target_active():
+                    forward, left, distance = self._parking_target_body_delta()
+                    target = self._parking_current_target()
+                    target_name = target[3] if target is not None else "park_target"
+                    target_text = (
+                        f" hedef={target_name}"
+                        f" target={distance:.2f}m"
+                        f" forward={forward:.2f} left={left:.2f}"
+                    )
+                    if self.parking_final_yaw_enabled:
+                        target_text += (
+                            f" yaw_err={self._parking_final_yaw_error():.2f}"
+                        )
+                self.get_logger().warn(
+                    f"PARK: state={self.state.value} "
+                    f"sure={self._elapsed(now):.1f}s "
+                    f"speed={command.speed:.2f} steer={steering:.2f} "
+                    f"right_front={self.right_front_range:.2f} "
+                    f"right_rear={self.right_rear_range:.2f} "
+                    f"lane={self.lateral_deviation:.2f} "
+                    f"heading={self.heading_deviation:.2f}"
+                    f"{target_text}",
                     throttle_duration_sec=0.5,
                 )
 

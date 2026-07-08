@@ -8,11 +8,15 @@ TRAFFIC_LIGHT_PLUGIN_SRC="$BASE_DIR/Gazebo/traffic_light_cycle_plugin.cc"
 TRAFFIC_LIGHT_PLUGIN_DIR="$BASE_DIR/Gazebo/plugins"
 TRAFFIC_LIGHT_PLUGIN="$TRAFFIC_LIGHT_PLUGIN_DIR/libTrafficLightCyclePlugin.so"
 
-export GAZEBO_MODEL_PATH=/home/elifnur/Desktop/sahi_otonom/models:$GAZEBO_MODEL_PATH
+export GAZEBO_MODEL_PATH=/home/elifnur/Desktop/sahi_otonom/models:/home/elifnur/.gazebo/models:$GAZEBO_MODEL_PATH
 export GAZEBO_PLUGIN_PATH="$TRAFFIC_LIGHT_PLUGIN_DIR:$GAZEBO_PLUGIN_PATH"
 
 WORLD="/home/elifnur/Desktop/sahi_otonom/worlds/parkur.world"
 MODEL_SDF="/home/elifnur/Desktop/sahi_otonom/models/alzada_car/model.sdf"
+INVISIBLE_MODEL_SDF="/home/elifnur/Desktop/sahi_otonom/models/invisible_box/model.sdf"
+AMBULANCE_MODEL_SDF="/home/elifnur/.gazebo/models/ambulance/model.sdf"
+CONSTRUCTION_CONE_MODEL_SDF="/home/elifnur/.gazebo/models/construction_cone/model.sdf"
+HATCHBACK_MODEL_SDF="/home/elifnur/.gazebo/models/hatchback/model.sdf"
 
 if [ ! -f "$TRAFFIC_LIGHT_PLUGIN" ] || [ "$TRAFFIC_LIGHT_PLUGIN_SRC" -nt "$TRAFFIC_LIGHT_PLUGIN" ]; then
     echo "▶ Trafik ışığı eklentisi derleniyor..."
@@ -70,7 +74,49 @@ ros2 run gazebo_ros spawn_entity.py \
 echo "  Spawn tamamlandı."
 sleep 3
 
-# 3. Algılama + DecisionMaking + actuator zincirini başlat
+# 3. Durak bolgesindeki gorunmez engeli sahneye spawn et
+echo ""
+echo "▶ invisible_model spawn ediliyor..."
+ros2 run gazebo_ros spawn_entity.py \
+    -file "$INVISIBLE_MODEL_SDF" \
+    -entity invisible_model \
+    -x -20.876137 -y 51.556136 -z 0.5 \
+    -R 0.0 -P 0.0 -Y -0.000236
+echo "  Görünmez engel spawn tamamlandı."
+sleep 1
+
+# 4. Ambulans, koni ve hatchback'i sabit noktalara spawn et
+echo ""
+echo "▶ ambulance spawn ediliyor..."
+ros2 run gazebo_ros spawn_entity.py \
+    -file "$AMBULANCE_MODEL_SDF" \
+    -entity ambulance \
+    -x -49.055300 -y 36.450400 -z 0.0 \
+    -R 0.0 -P 0.0 -Y 0.0
+echo "  Ambulans spawn tamamlandı."
+sleep 1
+
+echo ""
+echo "▶ construction_cone spawn ediliyor..."
+ros2 run gazebo_ros spawn_entity.py \
+    -file "$CONSTRUCTION_CONE_MODEL_SDF" \
+    -entity construction_cone \
+    -x 22.648700 -y 23.434400 -z 0.0 \
+    -R 0.0 -P 0.0 -Y 0.0
+echo "  Koni spawn tamamlandı."
+sleep 1
+
+echo ""
+echo "▶ hatchback spawn ediliyor..."
+ros2 run gazebo_ros spawn_entity.py \
+    -file "$HATCHBACK_MODEL_SDF" \
+    -entity hatchback \
+    -x 15.513284 -y -35.676838 -z 0.0 \
+    -R 0.0 -P 0.0 -Y -1.554613
+echo "  Hatchback spawn tamamlandı."
+sleep 1
+
+# 5. Algılama + DecisionMaking + actuator zincirini başlat
 echo ""
 echo "▶ Merkezi otonom kontrol zinciri başlatılıyor..."
 cd "$BASE_DIR"
